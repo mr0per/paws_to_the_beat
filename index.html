@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Paws to the Beat</title>
+	<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+	<main class="viewport">
+		<section class="scene" aria-label="Fish market scene with a cat">
+			<p id="trackerStatus" class="tracker-status">Starting hand tracking...</p>
+			<video id="inputVideo" class="input-video" playsinline></video>
+
+			<img class="layer layer-wall" src="images/wall.png" alt="Blue brick wall background" />
+			<img class="layer layer-crates" src="images/fish crates.png" alt="Fish crates in foreground" />
+
+			<img
+				id="catClosed"
+				class="layer layer-cat"
+				src="images/mouth closed.png"
+				alt="Blue cat looking at fish"
+			/>
+			<img
+				id="catOpen"
+				class="layer layer-cat is-hidden"
+				src="images/mouth open.png"
+				alt="Blue cat meowing"
+			/>
+
+			<img class="layer layer-fish" src="images/fish 1.png" alt="Small fish in the air" />
+		</section>
+	</main>
+
+	<script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+	<script src="sketch.js"></script>
+</body>
+</html>
