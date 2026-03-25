@@ -49,6 +49,8 @@ const NOM_SOUND_GAIN = 1.14;
 const NOM_SOUND_BASS_GAIN_DB = 11;
 const NOM_SOUND_BASS_FREQ_HZ = 180;
 const NOM_SOUND_PLAYBACK_RATE = 0.92;
+const FEEDBACK_STINGER_MIN_GAP_MS = 70;
+const FEEDBACK_STINGER_GAIN = 0.14;
 const LEVEL1_SONG_SRC = "images/Fish_Catching_Rhythm_Fun_2026-03-24T220746.mp3";
 const LEVEL1_FALLBACK_BPM = 120;
 const LEVEL1_FALLBACK_OFFSET_MS = 0;
@@ -131,6 +133,7 @@ let nomBassFilterNode = null;
 let nomOutputGainNode = null;
 let nomSoundLoadPromise = null;
 let isNomSoundMuted = false;
+let lastFeedbackStingerAt = 0;
 let level1ClapCueTimesMs = [];
 let level1DerivedClapLyricCueMs = null;
 let isLevel1CueAnalysisDone = false;
@@ -485,6 +488,144 @@ const playNomSound = () => {
 	audio.currentTime = 0;
 	audio.play().catch(() => {
 		// Ignore autoplay/momentary playback errors and continue gameplay.
+	});
+};
+
+const playFeedbackStinger = (tone) => {
+	const context = ensureNomAudioContext();
+	if (!context || !nomOutputGainNode) {
+		return;
+	}
+
+	const nowMs = performance.now();
+	if (nowMs - lastFeedbackStingerAt < FEEDBACK_STINGER_MIN_GAP_MS) {
+		return;
+	}
+	lastFeedbackStingerAt = nowMs;
+
+	if (context.state === "suspended") {
+		context.resume().catch(() => {
+			// If resume is blocked, skip this stinger.
+		});
+	}
+
+	const startAt = context.currentTime + 0.006;
+
+	const scheduleTone = (frequencyHz, offsetSec, durationSec, options = {}) => {
+		const oscillator = context.createOscillator();
+		const gainNode = context.createGain();
+		const type = options.type || "triangle";
+		const peakGain = Number.isFinite(options.peakGain) ? options.peakGain : FEEDBACK_STINGER_GAIN;
+
+		oscillator.type = type;
+		oscillator.frequency.setValueAtTime(frequencyHz, startAt + offsetSec);
+		if (Number.isFinite(options.endFrequencyHz)) {
+			oscillator.frequency.exponentialRampToValueAtTime(
+				Math.max(20, options.endFrequencyHz),
+				startAt + offsetSec + durationSec
+			);
+		}
+
+		gainNode.gain.setValueAtTime(0.0001, startAt + offsetSec);
+		gainNode.gain.linearRampToValueAtTime(peakGain, startAt + offsetSec + Math.min(0.016, durationSec * 0.3));
+		gainNode.gain.exponentialRampToValueAtTime(0.0001, startAt + offsetSec + durationSec);
+
+		oscillator.connect(gainNode);
+		gainNode.connect(nomOutputGainNode);
+		oscillator.start(startAt + offsetSec);
+		oscillator.stop(startAt + offsetSec + durationSec + 0.02);
+	};
+
+	const scheduleClickNoise = (offsetSec, durationSec, options = {}) => {
+		const sampleCount = Math.max(32, Math.round(context.sampleRate * durationSec));
+		const noiseBuffer = context.createBuffer(1, sampleCount, context.sampleRate);
+		const data = noiseBuffer.getChannelData(0);
+		for (let i = 0; i < sampleCount; i += 1) {
+			data[i] = (Math.random() * 2 - 1) * (1 - i / sampleCount);
+		}
+
+		const source = context.createBufferSource();
+		const filter = context.createBiquadFilter();
+		const gainNode = context.createGain();
+		source.buffer = noiseBuffer;
+		filter.type = options.filterType || "highpass";
+		filter.frequency.setValueAtTime(options.filterHz || 1800, startAt + offsetSec);
+
+		const peakGain = Number.isFinite(options.peakGain) ? options.peakGain : 0.08;
+		gainNode.gain.setValueAtTime(0.0001, startAt + offsetSec);
+		gainNode.gain.linearRampToValueAtTime(peakGain, startAt + offsetSec + Math.min(0.008, durationSec * 0.25));
+		gainNode.gain.exponentialRampToValueAtTime(0.0001, startAt + offsetSec + durationSec);
+
+		source.connect(filter);
+		filter.connect(gainNode);
+		gainNode.connect(nomOutputGainNode);
+		source.start(startAt + offsetSec);
+		source.stop(startAt + offsetSec + durationSec + 0.01);
+	};
+
+	const schedulePercHit = (frequencyHz, offsetSec, options = {}) => {
+		scheduleTone(frequencyHz, offsetSec, options.durationSec || 0.052, {
+			type: options.type || "square",
+			peakGain: options.toneGain || 0.1,
+			endFrequencyHz: options.endFrequencyHz
+		});
+		scheduleClickNoise(offsetSec, options.noiseDurationSec || 0.024, {
+			filterType: options.noiseFilterType || "highpass",
+			filterHz: options.noiseFilterHz || 2000,
+			peakGain: options.noiseGain || 0.07
+		});
+	};
+
+	if (tone === "positive") {
+		schedulePercHit(960, 0, {
+			durationSec: 0.048,
+			type: "square",
+			toneGain: 0.1,
+			endFrequencyHz: 1020,
+			noiseDurationSec: 0.018,
+			noiseFilterHz: 2200,
+			noiseGain: 0.06
+		});
+		schedulePercHit(1280, 0.07, {
+			durationSec: 0.052,
+			type: "square",
+			toneGain: 0.11,
+			endFrequencyHz: 1360,
+			noiseDurationSec: 0.02,
+			noiseFilterHz: 2400,
+			noiseGain: 0.065
+		});
+		schedulePercHit(1620, 0.145, {
+			durationSec: 0.058,
+			type: "triangle",
+			toneGain: 0.11,
+			endFrequencyHz: 1700,
+			noiseDurationSec: 0.022,
+			noiseFilterHz: 2600,
+			noiseGain: 0.06
+		});
+		return;
+	}
+
+	schedulePercHit(340, 0, {
+		durationSec: 0.072,
+		type: "square",
+		toneGain: 0.1,
+		endFrequencyHz: 270,
+		noiseDurationSec: 0.026,
+		noiseFilterType: "bandpass",
+		noiseFilterHz: 900,
+		noiseGain: 0.068
+	});
+	schedulePercHit(250, 0.082, {
+		durationSec: 0.084,
+		type: "square",
+		toneGain: 0.095,
+		endFrequencyHz: 190,
+		noiseDurationSec: 0.03,
+		noiseFilterType: "bandpass",
+		noiseFilterHz: 780,
+		noiseGain: 0.07
 	});
 };
 
@@ -1098,6 +1239,7 @@ const spawnEventFeedback = (text, tone) => {
 	pop.addEventListener("animationend", () => pop.remove(), { once: true });
 	window.setTimeout(() => pop.remove(), FEEDBACK_POP_LIFETIME_MS + 80);
 	eventFeedbackLayer.appendChild(pop);
+	playFeedbackStinger(tone);
 };
 
 const updateClapCueOverlay = (songMs) => {
