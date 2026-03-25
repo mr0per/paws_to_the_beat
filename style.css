@@ -35,6 +35,132 @@ body {
 	isolation: isolate;
 }
 
+.level-screen {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-content: center;
+	justify-items: center;
+	gap: 0.75rem;
+	padding: 2rem;
+	text-align: center;
+	z-index: 35;
+	color: #f3f8ff;
+	background: linear-gradient(180deg, rgba(10, 23, 43, 0.78), rgba(8, 18, 32, 0.82));
+	backdrop-filter: blur(3px);
+	transition: opacity 220ms ease;
+}
+
+.level-screen-kicker {
+	margin: 0;
+	font: 700 0.85rem/1.2 "Segoe UI", Tahoma, sans-serif;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: #b7d0f5;
+}
+
+.level-screen-title {
+	margin: 0;
+	font: 800 clamp(1.8rem, 5vw, 3rem)/1 "Segoe UI", Tahoma, sans-serif;
+	color: #ffffff;
+}
+
+.level-screen-subtitle {
+	margin: 0;
+	max-width: 34ch;
+	font: 500 1rem/1.4 "Segoe UI", Tahoma, sans-serif;
+	color: #d6e6ff;
+}
+
+.level-screen-actions {
+	display: flex;
+	gap: 0.7rem;
+	margin-top: 0.45rem;
+	flex-wrap: wrap;
+	justify-content: center;
+}
+
+.level-button {
+	appearance: none;
+	border: 1px solid rgba(198, 223, 255, 0.6);
+	border-radius: 999px;
+	padding: 0.62rem 1.2rem;
+	font: 700 0.95rem/1 "Segoe UI", Tahoma, sans-serif;
+	color: #f5fbff;
+	background: rgba(46, 104, 177, 0.88);
+	cursor: pointer;
+	transition: transform 140ms ease, filter 140ms ease;
+}
+
+.level-button:hover,
+.level-button:focus-visible {
+	transform: translateY(-1px);
+	filter: brightness(1.06);
+	outline: none;
+}
+
+.level-button-muted {
+	background: rgba(58, 76, 101, 0.7);
+	color: #d0deef;
+	border-color: rgba(156, 179, 211, 0.4);
+	cursor: not-allowed;
+	filter: saturate(0.75);
+}
+
+.level-screen.is-hidden {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.level-circle-button {
+	appearance: none;
+	border: 2px solid rgba(198, 223, 255, 0.6);
+	border-radius: 50%;
+	width: 96px;
+	height: 96px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	padding: 0;
+	background: rgba(46, 104, 177, 0.88);
+	color: #f5fbff;
+	cursor: pointer;
+	transition: transform 140ms ease, filter 140ms ease;
+}
+
+.level-circle-button:hover,
+.level-circle-button:focus-visible {
+	transform: translateY(-2px) scale(1.06);
+	filter: brightness(1.1);
+	outline: none;
+}
+
+.level-circle-number {
+	font: 800 2rem/1 "Segoe UI", Tahoma, sans-serif;
+	color: #ffffff;
+}
+
+.level-circle-label {
+	font: 600 0.65rem/1 "Segoe UI", Tahoma, sans-serif;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: #b7d0f5;
+}
+
+.level-circle-button.is-locked {
+	background: rgba(58, 76, 101, 0.7);
+	border-color: rgba(156, 179, 211, 0.4);
+	color: #d0deef;
+	cursor: not-allowed;
+	filter: saturate(0.6);
+}
+
+#gameOverScreen {
+	z-index: 40;
+}
+
 .tracker-status {
 	position: absolute;
 	left: 1rem;
@@ -134,6 +260,7 @@ body {
 .layer-wall,
 .layer-crates,
 .layer-cat,
+.layer-dog,
 .layer-fish {
 	width: 100%;
 	height: 100%;
@@ -156,7 +283,145 @@ body {
 	z-index: 3;
 }
 
+.layer-dog {
+	left: 0;
+	top: 0;
+	z-index: 4;
+}
+
+.layer-level2-bg,
+.layer-level2-floor,
+.layer-level2-dog1,
+.layer-level2-dog2,
+.layer-level2-dog3,
+.layer-level2-dog4 {
+	width: 100%;
+	height: 100%;
+	left: 0;
+	top: 0;
+}
+
+.layer-level2-bg {
+	z-index: 1;
+}
+
+.layer-level2-floor {
+	z-index: 2;
+}
+
+.layer-level2-dog1,
+.layer-level2-dog2,
+.layer-level2-dog3,
+.layer-level2-dog4 {
+	z-index: 3;
+}
+
+.level-2-only {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.scene.is-level-2 .level-2-only:not(.is-hidden) {
+	opacity: 1;
+}
+
+.scene.is-level-2 .level-1-only {
+	opacity: 0;
+	pointer-events: none;
+}
+
 .is-hidden {
 	opacity: 0;
 	pointer-events: none;
+}
+
+.mute-button {
+	position: absolute;
+	right: 1rem;
+	top: 3.35rem;
+	appearance: none;
+	border: 1px solid rgba(189, 214, 255, 0.45);
+	border-radius: 999px;
+	padding: 0.3rem 0.6rem;
+	font-size: 1.1rem;
+	line-height: 1;
+	color: #f2f8ff;
+	background: rgba(19, 32, 52, 0.68);
+	cursor: pointer;
+	z-index: 20;
+	backdrop-filter: blur(2px);
+	transition: transform 140ms ease, filter 140ms ease;
+}
+
+.mute-button:hover,
+.mute-button:focus-visible {
+	transform: translateY(-1px);
+	filter: brightness(1.12);
+	outline: none;
+}
+
+.mute-button[aria-pressed="true"] {
+	background: rgba(58, 76, 101, 0.75);
+	color: #d0deef;
+	border-color: rgba(156, 179, 211, 0.35);
+}
+
+/* ─── Countdown overlay ───────────────────────────────────────────────────── */
+
+.countdown-overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 28;
+	pointer-events: none;
+}
+
+.countdown-label {
+	position: absolute;
+	font: 900 clamp(5rem, 17vw, 11rem)/1 "Segoe UI", Tahoma, sans-serif;
+	color: #ffffff;
+	text-shadow:
+		0 0 0.12em rgba(100, 180, 255, 0.95),
+		0 0 0.3em rgba(60, 140, 255, 0.6),
+		0 0.04em 0.18em rgba(0, 0, 0, 0.6);
+	user-select: none;
+	transform-origin: center center;
+	will-change: transform, opacity;
+}
+
+.countdown-label[data-anim="count"] {
+	animation: countdown-pop 480ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.countdown-label[data-anim="go"] {
+	color: #ffe566;
+	text-shadow:
+		0 0 0.14em rgba(255, 210, 40, 0.95),
+		0 0 0.32em rgba(255, 170, 0, 0.6),
+		0 0.04em 0.2em rgba(0, 0, 0, 0.6);
+	animation: countdown-pop-go 820ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes countdown-pop {
+	0%   { transform: scale(0.5);              opacity: 0; }
+	18%  { transform: scale(1.08);             opacity: 1; }
+	30%  { transform: scale(1); }
+	42%  { transform: scale(1) translateX(-6px); }
+	56%  { transform: scale(1) translateX(6px); }
+	68%  { transform: scale(1) translateX(-3px); }
+	78%  { transform: scale(1) translateX(0);  opacity: 1; }
+	100% { transform: scale(0.55);             opacity: 0; }
+}
+
+@keyframes countdown-pop-go {
+	0%   { transform: scale(0.5);             opacity: 0; }
+	18%  { transform: scale(1.1);             opacity: 1; }
+	30%  { transform: scale(1); }
+	42%  { transform: scale(1) translateX(-5px); }
+	56%  { transform: scale(1) translateX(5px); }
+	68%  { transform: scale(1) translateX(0); }
+	78%  { transform: scale(1) translateY(0);             opacity: 1; }
+	100% { transform: scale(1.5) translateY(-0.05em);     opacity: 0; }
 }
