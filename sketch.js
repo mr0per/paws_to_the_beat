@@ -8,6 +8,7 @@ const fishCounter = document.getElementById("fishCounter");
 const muteButton = document.getElementById("muteButton");
 const inputVideo = document.getElementById("inputVideo");
 const scene = document.querySelector(".scene");
+const eventFeedbackLayer = document.getElementById("eventFeedbackLayer");
 const fishFlightLayer = document.getElementById("fishFlightLayer");
 const fishLandedLayer = document.getElementById("fishLandedLayer");
 const levelScreen = document.getElementById("levelScreen");
@@ -17,6 +18,8 @@ const gameOverScreen = document.getElementById("gameOverScreen");
 const replayButton = document.getElementById("replayButton");
 const levelSelectButton = document.getElementById("levelSelectButton");
 const countdownOverlay = document.getElementById("countdownOverlay");
+const clapCueOverlay = document.getElementById("clapCueOverlay");
+const clapCueText = document.getElementById("clapCueText");
 
 let isTrackingStarted = false;
 let videoWidth = 640;
@@ -74,6 +77,16 @@ const LEVEL1_FADE_STEP_MS = 40;
 // Detected from audio: beat grid ~333 ms; "3" at 10.870 s, "Go!" at 11.868 s.
 const LEVEL1_COUNTDOWN_LABELS = ["3", "2", "1", "Go!"];
 const LEVEL1_COUNTDOWN_TRIGGERS_MS = [10870, 11198, 11535, 11868];
+const LEVEL1_CLAP_CUE_WORDS = ["Clap", "along", "with", "the", "beat", "to", "catch", "the", "fish"];
+const LEVEL1_CLAP_CUE_FALLBACK_TRIGGERS_MS = [5050, 5335, 5620, 5905, 6190, 6475, 6760, 7045, 7330];
+const LEVEL1_CLAP_LYRIC_SEARCH_START_MS = 4200;
+const LEVEL1_CLAP_LYRIC_SEARCH_END_MS = 9000;
+const LEVEL1_CLAP_LYRIC_TARGET_START_MS = 5000;
+const LEVEL1_CLAP_LYRIC_GLOBAL_OFFSET_MS = 1060;
+const LEVEL1_CLAP_CUE_PRE_ROLL_MS = 260;
+const LEVEL1_CLAP_CUE_POST_ROLL_MS = 620;
+const LEVEL1_CLAP_WORD_ACTIVE_WINDOW_MS = 210;
+const FEEDBACK_POP_LIFETIME_MS = 820;
 
 const LEVEL_CONFIGS = {
 	1: {
@@ -119,6 +132,7 @@ let nomOutputGainNode = null;
 let nomSoundLoadPromise = null;
 let isNomSoundMuted = false;
 let level1ClapCueTimesMs = [];
+let level1DerivedClapLyricCueMs = null;
 let isLevel1CueAnalysisDone = false;
 let isLevel1CueAnalysisPending = false;
 let level1EstimatedBeatMs = 60000 / LEVEL1_FALLBACK_BPM;
@@ -128,6 +142,8 @@ let isLevel1Ending = false;
 let level1FadeIntervalId = null;
 let countdownFrameId = null;
 let countdownLastStep = -1;
+let sceneEffectsFrameId = null;
+let level1ClapCueWordEls = [];
 
 const clearLevel1EndFlow = () => {
 	isLevel1Ending = false;
@@ -236,6 +252,77 @@ const estimateLevel1BeatGridFromCues = (cuesMs) => {
 
 	level1EstimatedBeatMs = medianInterval;
 	level1EstimatedOffsetMs = bestOffset;
+};
+
+const deriveLevel1ClapLyricCueMs = (speechCueMs, fallbackCueMs) => {
+	const pool = Array.isArray(speechCueMs) && speechCueMs.length >= LEVEL1_CLAP_CUE_WORDS.length
+		? speechCueMs
+		: fallbackCueMs;
+
+	if (!Array.isArray(pool) || pool.length === 0) {
+		return null;
+	}
+
+	const requiredCount = LEVEL1_CLAP_CUE_WORDS.length;
+	const minGapMs = 120;
+	const maxGapMs = 700;
+	const inWindow = pool.filter((cueMs) => cueMs >= LEVEL1_CLAP_LYRIC_SEARCH_START_MS && cueMs <= LEVEL1_CLAP_LYRIC_SEARCH_END_MS);
+	const source = inWindow.length >= requiredCount ? inWindow : pool;
+	let bestSequence = null;
+	let bestScore = Infinity;
+
+	for (let i = 0; i <= source.length - requiredCount; i += 1) {
+		const sequence = source.slice(i, i + requiredCount);
+		let valid = true;
+		let gapMean = 0;
+
+		for (let j = 1; j < sequence.length; j += 1) {
+			const gapMs = sequence[j] - sequence[j - 1];
+			if (gapMs < minGapMs || gapMs > maxGapMs) {
+				valid = false;
+				break;
+			}
+			gapMean += gapMs;
+		}
+
+		if (!valid) {
+			continue;
+		}
+
+		gapMean /= Math.max(1, sequence.length - 1);
+		let gapVariance = 0;
+		for (let j = 1; j < sequence.length; j += 1) {
+			const gapMs = sequence[j] - sequence[j - 1];
+			const diff = gapMs - gapMean;
+			gapVariance += diff * diff;
+		}
+
+		const phraseStartPreference = Math.abs(sequence[0] - LEVEL1_CLAP_LYRIC_TARGET_START_MS);
+		const score = gapVariance + phraseStartPreference * 0.9;
+		if (score < bestScore) {
+			bestScore = score;
+			bestSequence = sequence;
+		}
+	}
+
+	if (bestSequence) {
+		return bestSequence;
+	}
+
+	const firstContiguous = source.slice(0, requiredCount);
+	if (firstContiguous.length === requiredCount) {
+		return firstContiguous;
+	}
+
+	return null;
+};
+
+const getActiveLevel1ClapLyricCueMs = () => {
+	if (Array.isArray(level1DerivedClapLyricCueMs) && level1DerivedClapLyricCueMs.length === LEVEL1_CLAP_CUE_WORDS.length) {
+		return level1DerivedClapLyricCueMs.map((cueMs) => cueMs + LEVEL1_CLAP_LYRIC_GLOBAL_OFFSET_MS);
+	}
+
+	return LEVEL1_CLAP_CUE_FALLBACK_TRIGGERS_MS.map((cueMs) => cueMs + LEVEL1_CLAP_LYRIC_GLOBAL_OFFSET_MS);
 };
 
 const ensureLevel1Song = () => {
@@ -492,11 +579,87 @@ const analyzeLevel1ClapCues = async () => {
 			lastPeakFrame = frame;
 		}
 
+		const zcr = new Float32Array(frameCount);
+		let zcrSum = 0;
+		let zcrSqSum = 0;
+		for (let frame = 0; frame < frameCount; frame += 1) {
+			const offset = frame * hopSize;
+			let crossings = 0;
+			let previous = mono[offset];
+			for (let i = 1; i < frameSize; i += 1) {
+				const sample = mono[offset + i];
+				if ((previous >= 0 && sample < 0) || (previous < 0 && sample >= 0)) {
+					crossings += 1;
+				}
+				previous = sample;
+			}
+			const frameZcr = crossings / frameSize;
+			zcr[frame] = frameZcr;
+			zcrSum += frameZcr;
+			zcrSqSum += frameZcr * frameZcr;
+		}
+
+		const energyMean = energy.reduce((sum, value) => sum + value, 0) / Math.max(1, frameCount);
+		const energyVariance = energy.reduce((sum, value) => {
+			const delta = value - energyMean;
+			return sum + delta * delta;
+		}, 0) / Math.max(1, frameCount);
+		const energyStdDev = Math.sqrt(Math.max(0, energyVariance));
+
+		const zcrMean = zcrSum / Math.max(1, frameCount);
+		const zcrVariance = Math.max(0, zcrSqSum / Math.max(1, frameCount) - zcrMean * zcrMean);
+		const zcrStdDev = Math.sqrt(zcrVariance);
+
+		const speechScore = new Float32Array(frameCount);
+		let speechSum = 0;
+		let speechSqSum = 0;
+		for (let frame = 0; frame < frameCount; frame += 1) {
+			const zcrBoost = Math.max(0, (zcr[frame] - zcrMean) / Math.max(1e-6, zcrStdDev * 1.2));
+			const noKickPenalty = energy[frame] > energyMean + energyStdDev * 1.9 ? 0.25 : 1;
+			const score = novelty[frame] * (1 + zcrBoost) * noKickPenalty;
+			speechScore[frame] = score;
+			speechSum += score;
+			speechSqSum += score * score;
+		}
+
+		const speechMean = speechSum / Math.max(1, frameCount);
+		const speechVariance = Math.max(0, speechSqSum / Math.max(1, frameCount) - speechMean * speechMean);
+		const speechStdDev = Math.sqrt(speechVariance);
+		const speechThreshold = speechMean + speechStdDev * 1.15;
+		const speechGapFrames = Math.max(1, Math.round((sampleRate * 0.12) / hopSize));
+		const speechCues = [];
+		let lastSpeechPeakFrame = -speechGapFrames;
+
+		for (let frame = 1; frame < frameCount - 1; frame += 1) {
+			if (frame - lastSpeechPeakFrame < speechGapFrames) {
+				continue;
+			}
+
+			const inLyricWindow = frame * hopSize * 1000 / sampleRate >= LEVEL1_CLAP_LYRIC_SEARCH_START_MS
+				&& frame * hopSize * 1000 / sampleRate <= LEVEL1_CLAP_LYRIC_SEARCH_END_MS;
+			if (!inLyricWindow) {
+				continue;
+			}
+
+			const isSpeechPeak = speechScore[frame] > speechThreshold
+				&& speechScore[frame] >= speechScore[frame - 1]
+				&& speechScore[frame] > speechScore[frame + 1];
+			if (!isSpeechPeak) {
+				continue;
+			}
+
+			const cueTimeMs = (frame * hopSize * 1000) / sampleRate;
+			speechCues.push(cueTimeMs);
+			lastSpeechPeakFrame = frame;
+		}
+
 		level1ClapCueTimesMs = cues;
 		estimateLevel1BeatGridFromCues(cues);
+		level1DerivedClapLyricCueMs = deriveLevel1ClapLyricCueMs(speechCues, cues);
 		isLevel1CueAnalysisDone = true;
 	} catch (error) {
 		console.warn("Level 1 clap-cue analysis failed.", error);
+		level1DerivedClapLyricCueMs = null;
 		isLevel1CueAnalysisDone = true;
 	} finally {
 		isLevel1CueAnalysisPending = false;
@@ -595,6 +758,7 @@ const playLevel1Song = async () => {
 
 const stopLevel1Song = () => {
 	if (!level1SongAudio) {
+		stopSceneEffectsLoop();
 		return;
 	}
 
@@ -602,12 +766,15 @@ const stopLevel1Song = () => {
 	clearCountdownDisplay();
 	level1SongAudio.pause();
 	level1SongAudio.currentTime = 0;
+	stopSceneEffectsLoop();
 };
 
 const LEVEL_METRICS = {
 	1: {
 		mouthXRatio: 0.715,
 		mouthYRatio: 0.62,
+		feedbackXRatio: 0.7,
+		feedbackYRatio: 0.38,
 		catchXRatio: 0.73,
 		catchYRatio: 0.64,
 		landXRatio: 0.78,
@@ -616,6 +783,8 @@ const LEVEL_METRICS = {
 	2: {
 		mouthXRatio: 0.5,
 		mouthYRatio: 0.62,
+		feedbackXRatio: 0.5,
+		feedbackYRatio: 0.39,
 		catchXRatio: 0.5,
 		catchYRatio: 0.64,
 		landXRatio: 0.54,
@@ -827,6 +996,8 @@ const getSceneMetrics = () => {
 		height: bounds.height,
 		mouthX: bounds.width * ratios.mouthXRatio,
 		mouthY: bounds.height * ratios.mouthYRatio,
+		feedbackX: bounds.width * ratios.feedbackXRatio,
+		feedbackY: bounds.height * ratios.feedbackYRatio,
 		catchX: bounds.width * ratios.catchXRatio,
 		catchY: bounds.height * ratios.catchYRatio,
 		landX: bounds.width * ratios.landXRatio,
@@ -885,6 +1056,124 @@ const createFishSprite = () => {
 	fish.src = fishSpriteSrc;
 	fish.alt = "";
 	return fish;
+};
+
+const ensureClapCueWords = () => {
+	if (!clapCueText || clapCueText.childElementCount > 0) {
+		return;
+	}
+
+	for (let i = 0; i < LEVEL1_CLAP_CUE_WORDS.length; i += 1) {
+		const word = document.createElement("span");
+		word.className = "clap-cue-word";
+		word.textContent = LEVEL1_CLAP_CUE_WORDS[i];
+		clapCueText.appendChild(word);
+		level1ClapCueWordEls.push(word);
+	}
+};
+
+const resetClapCueOverlay = () => {
+	if (clapCueOverlay) {
+		clapCueOverlay.classList.remove("is-visible");
+		clapCueOverlay.setAttribute("aria-hidden", "true");
+	}
+
+	for (let i = 0; i < level1ClapCueWordEls.length; i += 1) {
+		level1ClapCueWordEls[i].classList.remove("is-active", "is-complete");
+	}
+};
+
+const spawnEventFeedback = (text, tone) => {
+	if (!eventFeedbackLayer || !scene) {
+		return;
+	}
+
+	const metrics = getSceneMetrics();
+	const pop = document.createElement("p");
+	pop.className = `event-feedback ${tone === "positive" ? "is-positive" : "is-negative"}`;
+	pop.textContent = text;
+	pop.style.left = `${metrics.feedbackX}px`;
+	pop.style.top = `${metrics.feedbackY}px`;
+	pop.setAttribute("aria-hidden", "true");
+	pop.addEventListener("animationend", () => pop.remove(), { once: true });
+	window.setTimeout(() => pop.remove(), FEEDBACK_POP_LIFETIME_MS + 80);
+	eventFeedbackLayer.appendChild(pop);
+};
+
+const updateClapCueOverlay = (songMs) => {
+	if (!clapCueOverlay || level1ClapCueWordEls.length === 0) {
+		return;
+	}
+
+	const cueTriggersMs = getActiveLevel1ClapLyricCueMs();
+	const cueCount = Math.min(level1ClapCueWordEls.length, cueTriggersMs.length);
+	if (cueCount === 0) {
+		resetClapCueOverlay();
+		return;
+	}
+
+	const firstCueMs = cueTriggersMs[0];
+	const lastCueMs = cueTriggersMs[cueCount - 1];
+	const visibleStartMs = firstCueMs - LEVEL1_CLAP_CUE_PRE_ROLL_MS;
+	const visibleEndMs = lastCueMs + LEVEL1_CLAP_CUE_POST_ROLL_MS;
+
+	if (!Number.isFinite(songMs) || songMs < visibleStartMs || songMs > visibleEndMs) {
+		resetClapCueOverlay();
+		return;
+	}
+
+	clapCueOverlay.classList.add("is-visible");
+	clapCueOverlay.setAttribute("aria-hidden", "false");
+
+	let activeCueIndex = -1;
+	let nearestCueDeltaMs = Infinity;
+	for (let i = 0; i < cueCount; i += 1) {
+		const cueDeltaMs = songMs - cueTriggersMs[i];
+		const absCueDeltaMs = Math.abs(cueDeltaMs);
+
+		level1ClapCueWordEls[i].classList.toggle("is-complete", cueDeltaMs > LEVEL1_CLAP_WORD_ACTIVE_WINDOW_MS * 0.45);
+
+		if (absCueDeltaMs <= LEVEL1_CLAP_WORD_ACTIVE_WINDOW_MS && absCueDeltaMs < nearestCueDeltaMs) {
+			nearestCueDeltaMs = absCueDeltaMs;
+			activeCueIndex = i;
+		}
+	}
+
+	for (let i = 0; i < level1ClapCueWordEls.length; i += 1) {
+		level1ClapCueWordEls[i].classList.toggle("is-active", i === activeCueIndex);
+		if (i >= cueCount) {
+			level1ClapCueWordEls[i].classList.remove("is-complete");
+		}
+	}
+};
+
+const animateSceneEffects = () => {
+	if (!isGameStarted) {
+		sceneEffectsFrameId = null;
+		resetClapCueOverlay();
+		return;
+	}
+
+	const songMs = currentLevel === 1 && level1SongAudio ? level1SongAudio.currentTime * 1000 : NaN;
+	updateClapCueOverlay(songMs);
+	sceneEffectsFrameId = window.requestAnimationFrame(animateSceneEffects);
+};
+
+const startSceneEffectsLoop = () => {
+	if (sceneEffectsFrameId) {
+		return;
+	}
+
+	sceneEffectsFrameId = window.requestAnimationFrame(animateSceneEffects);
+};
+
+const stopSceneEffectsLoop = () => {
+	if (sceneEffectsFrameId) {
+		window.cancelAnimationFrame(sceneEffectsFrameId);
+		sceneEffectsFrameId = null;
+	}
+
+	resetClapCueOverlay();
 };
 
 const prepareFishSprite = async () => {
@@ -1047,6 +1336,7 @@ const animateFish = () => {
 				fish.resolved = true;
 				if (isMouthOpen) {
 					eatenFishCount += 1;
+					spawnEventFeedback("Nice!", "positive");
 					playNomSound();
 					updateFishCounter();
 					isMouthLockedClosed = true;
@@ -1055,6 +1345,7 @@ const animateFish = () => {
 					removeFish(fish, i);
 				} else {
 					missedFishCount += 1;
+					spawnEventFeedback("Miss!", "negative");
 					updateFishCounter();
 					isMouthLockedClosed = true;
 					clapOpenUntil = 0;
@@ -1069,6 +1360,7 @@ const animateFish = () => {
 					removeFish(fish, i);
 				} else if (isMouthOpen) {
 					eatenFishCount += 1;
+					spawnEventFeedback("Nice!", "positive");
 					playNomSound();
 					updateFishCounter();
 					isMouthLockedClosed = true;
@@ -1077,6 +1369,7 @@ const animateFish = () => {
 					removeFish(fish, i);
 				} else {
 					missedFishCount += 1;
+					spawnEventFeedback("Miss!", "negative");
 					updateFishCounter();
 					isMouthLockedClosed = true;
 					clapOpenUntil = 0;
@@ -1255,11 +1548,13 @@ const startGameplayForCurrentLevel = () => {
 	hideGameOverScreen();
 
 	if (currentLevel === 1) {
+		startSceneEffectsLoop();
 		playLevel1Song();
 		startCountdownDisplay();
 		setStatus("Hand tracking ready - waiting for song count-in");
 		setDebug([`camera: ${videoWidth}x${videoHeight}`, "ml5: model ready", "song: waiting for 3-2-1-go"]);
 	} else {
+		stopSceneEffectsLoop();
 		stopLevel1Song();
 	}
 
@@ -1331,6 +1626,7 @@ const setupLevelScreen = () => {
 			clapOpenUntil = 0;
 			wasPalmsTouching = false;
 			applyLevelVisuals(1);
+			stopSceneEffectsLoop();
 			updateFishCounter();
 			hideGameOverScreen();
 			showLevelScreen();
@@ -1660,6 +1956,7 @@ const setupMuteButton = () => {
 
 const init = async () => {
 	updateFishCounter();
+	ensureClapCueWords();
 	ensureNomSoundReady();
 	await prepareFishSprite();
 	setupLevelScreen();
