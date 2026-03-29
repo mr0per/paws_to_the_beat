@@ -11,32 +11,36 @@
 		<section class="scene" aria-label="Fish market scene with a cat">
 			<div id="levelScreen" class="level-screen" role="dialog" aria-label="Choose level">
 				<p class="level-screen-kicker">Paws to the Beat</p>
-				<h1 class="level-screen-title">Select Level</h1>
-				<p class="level-screen-subtitle">Choose your challenge level to begin.</p>
+			<h1 class="level-screen-title">Select Level</h1>
+			<p class="level-screen-subtitle">choose your level to begin</p>
 				<div class="level-screen-actions">
-					<button id="level1Button" class="level-circle-button" type="button" aria-label="Level 1">
+					<button id="level1Button" class="level-circle-button" type="button" aria-label="Fish Catchers">
 						<span class="level-circle-number">1</span>
-						<span class="level-circle-label">Level 1</span>
+						<span class="level-circle-label">fish catchers</span>
 					</button>
-					<button id="level2Button" class="level-circle-button" type="button" aria-label="Level 2">
+					<button id="level2Button" class="level-circle-button" type="button" aria-label="Doggy Choir">
 						<span class="level-circle-number">2</span>
-						<span class="level-circle-label">Level 2</span>
-					</button>
+						<span class="level-circle-label">doggy choir</span>					<span class="coming-soon">coming soon</span>					</button>
 				</div>
 			</div>
-			<div id="gameOverScreen" class="level-screen is-hidden" role="dialog" aria-label="Round complete">
-				<p class="level-screen-kicker">Round Complete</p>
-				<h2 class="level-screen-title">Music Finished</h2>
-				<p class="level-screen-subtitle">Choose what to do next.</p>
-				<div class="level-screen-actions">
-					<button id="replayButton" class="level-button" type="button">Replay</button>
-					<button id="levelSelectButton" class="level-button" type="button">Level Select</button>
-				</div>
-			</div>
-			<p id="trackerStatus" class="tracker-status">Starting hand tracking...</p>
-			<pre id="trackerDebug" class="tracker-debug">Waiting for camera...</pre>
+		<div id="gameOverScreen" class="end-screen is-hidden">
+			<img src="images/end_screen.png" alt="End screen" />
+			<h2>Round Complete!</h2>
+			<p>you have caught: <span id="gameOverScore">0 FISH</span></p>
+			<button id="replayButton" type="button">replay</button>
+			<button id="levelSelectButton" type="button">level select</button>
+		</div>
 			<p id="fishCounter" class="fish-counter">Eaten: 0 | Missed: 0</p>
-			<button id="muteButton" class="mute-button" type="button" aria-label="Mute music" aria-pressed="false">🔊</button>
+			<div id="gameControls" class="game-controls is-hidden" aria-label="Level controls">
+				<button id="pauseButton" class="hud-button pause-icon-button" type="button" aria-label="Pause level" aria-pressed="false">
+					<span class="pause-icon" aria-hidden="true"></span>
+				</button>
+				<button id="homeButton" class="hud-button home-icon-button" type="button" aria-label="Return to home screen">
+					<svg class="home-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+						<path fill-rule="evenodd" d="M12 2.2 22.1 9.7l-1.3 1.7-1.8-1.3V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-9.9l-1.8 1.3-1.3-1.7L12 2.2Zm-1.8 18.8h3.6v-6.9a1.8 1.8 0 1 0-3.6 0V21Z" />
+					</svg>
+				</button>
+			</div>
 			<video id="inputVideo" class="input-video" playsinline autoplay muted width="640" height="480"></video>
 			<div id="fishLandedLayer" class="fish-landed-layer" aria-hidden="true"></div>
 
@@ -53,14 +57,20 @@
 			<img
 				id="catClosed"
 				class="layer layer-cat level-1-only"
-				src="images/mouth closed.png"
-				alt="Blue cat looking at fish"
+				src="images/animate_cat.gif"
+				alt="Blue cat with closed-mouth animation"
 			/>
 			<img
 				id="catOpen"
 				class="layer layer-cat level-1-only is-hidden"
 				src="images/mouth open.png"
 				alt="Blue cat meowing"
+			/>
+			<img
+				id="catYuck"
+				class="layer layer-cat level-1-only is-hidden"
+				src="images/yuck!.png"
+				alt="Blue cat reacting to pufferfish"
 			/>
 			<img
 				id="dogClosed"
@@ -79,12 +89,13 @@
 			<div id="eventFeedbackLayer" class="event-feedback-layer" aria-hidden="true"></div>
 			<div id="clapCueOverlay" class="clap-cue-overlay" aria-hidden="true">
 				<p id="clapCueText" class="clap-cue-text"></p>
+				<img class="clap-cue-hand" src="images/hand_clap.png" alt="" aria-hidden="true" />
 			</div>
 			<div id="fishFlightLayer" class="fish-flight-layer" aria-hidden="true"></div>
 		</section>
 	</main>
 
 	<script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
-	<script src="sketch.js?v=20260324b"></script>
+	<script src="sketch.js?v=20260328a"></script>
 </body>
 </html>

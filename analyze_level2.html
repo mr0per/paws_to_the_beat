@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Level 2 Onset Analysis</title>
+<style>body{font:14px monospace;background:#111;color:#9f9;padding:1rem;}pre{white-space:pre-wrap;}</style>
+</head>
+<body>
+<h2>Level 2 Onset Detector</h2>
+<p id="status">Loading...</p>
+<pre id="out"></pre>
+<script>
+const log = (msg) => { document.getElementById('out').textContent += msg + '\n'; };
+const status = (msg) => { document.getElementById('status').textContent = msg; };
+
+(async () => {
+  try {
+    status('Fetching audio...');
+    const resp = await fetch('images/Bark_with_the_Choir_2026-03-27T182741.mp3');
+    const buf = await resp.arrayBuffer();
+    const ctx = new AudioContext();
+    status('Decoding...');
+    const audioBuf = await ctx.decodeAudioData(buf);
+    await ctx.close();
+
+    const sr = audioBuf.sampleRate;
+    const dur = audioBuf.duration;
+    log(`Duration: ${dur.toFixed(2)}s  SR: ${sr}`);
+
+    // Mix down to mono, first 25 seconds
+    const limitSec = 25;
+    const limitN = Math.min(audioBuf.length, Math.round(sr * limitSec));
+    const mono = new Float32Array(limitN);
+    for (let ch = 0; ch < audioBuf.numberOfChannels; ch++) {
+      const ch_data = audioBuf.getChannelData(ch);
+      for (let i = 0; i < limitN; i++) mono[i] += ch_data[i] / audioBuf.numberOfChannels;
+    }
+
+    // Compute RMS in 20ms windows, 5ms hop
+    const winN = Math.round(sr * 0.020);
+    const hopN = Math.round(sr * 0.005);
+    const frameCount = Math.floor((limitN - winN) / hopN);
+    const energy = new Float32Array(frameCount);
+    for (let f = 0; f < frameCount; f++) {
+      const off = f * hopN;
+      let sum = 0;
+      for (let i = 0; i < winN; i++) { const s = mono[off + i]; sum += s * s; }
+      energy[f] = Math.sqrt(sum / winN);
+    }
+
+    // Onset strength: positive delta
+    const onset = new Float32Array(frameCount);
+    const lookback = 4;
+    for (let f = lookback; f < frameCount; f++) {
+      let prev = 0;
+      for (let i = f - lookback; i < f; i++) prev += energy[i];
+      prev /= lookback;
+      onset[f] = Math.max(0, energy[f] - prev);
+    }
+
+    const mean = onset.reduce((a,b)=>a+b,0)/frameCount;
+    const stdDev = Math.sqrt(onset.reduce((a,b)=>a+(b-mean)**2,0)/frameCount);
+    const thresh = mean + stdDev * 1.6;
+    const minGapFrames = Math.round(sr * 0.18 / hopN);
+
+    const peaks = [];
+    let last = -minGapFrames;
+    for (let f = 1; f < frameCount - 1; f++) {
+      if (f - last < minGapFrames) continue;
+      if (onset[f] > thresh && onset[f] >= onset[f-1] && onset[f] > onset[f+1]) {
+        peaks.push(Math.round(f * hopN * 1000 / sr));
+        last = f;
+      }
+    }
+
+    log('\nEnergy onset peaks (ms):');
+    log(JSON.stringify(peaks));
+    log('\nLooking for evenly-spaced groups of 4 (count-in pattern)...');
+
+    // Find groups of 4 peaks with consistent spacing (200-500ms each)
+    for (let i = 0; i < peaks.length - 3; i++) {
+      const gaps = [peaks[i+1]-peaks[i], peaks[i+2]-peaks[i+1], peaks[i+3]-peaks[i+2]];
+      const mean_g = gaps.reduce((a,b)=>a+b,0)/3;
+      const maxDev = Math.max(...gaps.map(g=>Math.abs(g-mean_g)));
+      if (mean_g >= 200 && mean_g <= 600 && maxDev < mean_g * 0.25) {
+        log(`\nCANDIDATE count-in at ${peaks[i]}, ${peaks[i+1]}, ${peaks[i+2]}, ${peaks[i+3]} ms (gap ~${Math.round(mean_g)}ms)`);
+      }
+    }
+
+    // Also log all peaks up to 20s with their gaps for manual inspection
+    log('\nAll peaks with gaps:');
+    for (let i = 0; i < peaks.length; i++) {
+      const gap = i > 0 ? peaks[i] - peaks[i-1] : 0;
+      log(`  ${peaks[i]} ms  (gap +${gap}ms)`);
+    }
+    status('Done!');
+  } catch(e) {
+    status('Error: ' + e);
+    log(String(e));
+  }
+})();
+</script>
+</body>
+</html>

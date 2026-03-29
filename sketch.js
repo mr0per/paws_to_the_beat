@@ -1,11 +1,16 @@
 const catClosed = document.getElementById("catClosed");
+const catClosedKeyed = document.getElementById("catClosedKeyed");
 const catOpen = document.getElementById("catOpen");
+const catYuck = document.getElementById("catYuck");
 const dogClosed = document.getElementById("dogClosed");
 const dogOpen = document.getElementById("dogOpen");
 const trackerStatus = document.getElementById("trackerStatus");
 const trackerDebug = document.getElementById("trackerDebug");
 const fishCounter = document.getElementById("fishCounter");
 const muteButton = document.getElementById("muteButton");
+const gameControls = document.getElementById("gameControls");
+const pauseButton = document.getElementById("pauseButton");
+const homeButton = document.getElementById("homeButton");
 const inputVideo = document.getElementById("inputVideo");
 const scene = document.querySelector(".scene");
 const eventFeedbackLayer = document.getElementById("eventFeedbackLayer");
@@ -15,6 +20,9 @@ const levelScreen = document.getElementById("levelScreen");
 const level1Button = document.getElementById("level1Button");
 const level2Button = document.getElementById("level2Button");
 const gameOverScreen = document.getElementById("gameOverScreen");
+const gameOverScore = document.getElementById("gameOverScore");
+const skipButton = document.getElementById("skipButton");
+const skipLevelButton = document.getElementById("skipLevelButton");
 const replayButton = document.getElementById("replayButton");
 const levelSelectButton = document.getElementById("levelSelectButton");
 const countdownOverlay = document.getElementById("countdownOverlay");
@@ -42,6 +50,9 @@ const STALE_HOLD_MS = 1400;
 const MIN_TRIGGER_GAP_MS = 110;
 const MAX_LANDED_FISH = 12;
 const FISH_IMAGE_SRC = "images/fish 1.png";
+const PUFFERFISH_IMAGE_SRC = "images/pufferfish.png";
+const YUCK_IMAGE_SRC = "images/yuck!.png";
+const YUCK_DISPLAY_MS = 2200;
 const NOM_SOUND_SRC = "images/543386__thedragonsspark__nom-noise.wav";
 const NOM_SOUND_POOL_SIZE = 4;
 const NOM_SOUND_VOLUME = 0.88;
@@ -49,9 +60,14 @@ const NOM_SOUND_GAIN = 1.14;
 const NOM_SOUND_BASS_GAIN_DB = 11;
 const NOM_SOUND_BASS_FREQ_HZ = 180;
 const NOM_SOUND_PLAYBACK_RATE = 0.92;
+const WOOF_SOUND_SRC = "images/bark.mp3";
+const WOOF_SOUND_POOL_SIZE = 3;
+const WOOF_SOUND_VOLUME = 0.98;
+const WOOF_SOUND_COOLDOWN_MS = 130;
 const FEEDBACK_STINGER_MIN_GAP_MS = 70;
 const FEEDBACK_STINGER_GAIN = 0.14;
 const LEVEL1_SONG_SRC = "images/Fish_Catching_Rhythm_Fun_2026-03-24T220746.mp3";
+const LEVEL2_SONG_SRC = "images/Bark_with_the_Choir_2026-03-27T182741.mp3";
 const LEVEL1_FALLBACK_BPM = 120;
 const LEVEL1_FALLBACK_OFFSET_MS = 0;
 const LEVEL1_FALLBACK_TRAVEL_BEATS = 2;
@@ -67,18 +83,27 @@ const CLAP_OPEN_HOLD_MS = 260;
 const CLAP_TOUCH_THRESHOLD_SCALE = 1.6;
 const CLAP_TOUCH_MIN_PX = 96;
 const CLAP_TOUCH_MAX_PX = 185;
+const CAT_CLOSED_HEAD_DOWN_AT_RATIO = 0.46;
 const HANDPOSE_MIN_DETECTION_CONFIDENCE = 0.15;
 const HANDPOSE_MIN_TRACKING_CONFIDENCE = 0.15;
 const LOCK_RELEASE_DISTANCE_SCALE = 1.1;
 const LEVEL1_BASE_VOLUME = 0.85;
+const LEVEL2_BASE_VOLUME = 0.85;
 const LEVEL1_END_LEAD_MS = 2300;
 const LEVEL1_FADE_OUT_MS = 1800;
 const LEVEL1_FADE_STEP_MS = 40;
+const LEVEL2_END_LEAD_MS = 2300;
+const LEVEL2_FADE_OUT_MS = 1800;
+const LEVEL2_FADE_STEP_MS = 40;
+const TOXIC_DRIP_OVERLAY_MAX_MS = 3800;
 
 // Countdown "3 2 1 Go!" — song times (ms) when each label should appear.
 // Detected from audio: beat grid ~333 ms; "3" at 10.870 s, "Go!" at 11.868 s.
 const LEVEL1_COUNTDOWN_LABELS = ["3", "2", "1", "Go!"];
 const LEVEL1_COUNTDOWN_TRIGGERS_MS = [10870, 11198, 11535, 11868];
+// Level 2: "3" at 6.000 s, 727 ms spacing — "Go!" animation (820 ms) ends at ~9.000 s.
+const LEVEL2_COUNTDOWN_LABELS = ["3", "2", "1", "Go!"];
+const LEVEL2_COUNTDOWN_TRIGGERS_MS = [6000, 7000, 8000, 9000];
 const LEVEL1_CLAP_CUE_WORDS = ["Clap", "along", "with", "the", "beat", "to", "catch", "the", "fish"];
 const LEVEL1_CLAP_CUE_FALLBACK_TRIGGERS_MS = [5050, 5335, 5620, 5905, 6190, 6475, 6760, 7045, 7330];
 const LEVEL1_CLAP_LYRIC_SEARCH_START_MS = 4200;
@@ -111,11 +136,17 @@ let level1BeatSpawnTimerId = null;
 let fishAnimationFrameId = null;
 let fishStartDelayTimerId = null;
 let isMouthOpen = false;
+let yuckActiveUntil = 0;
+let yuckResetTimerId = null;
 let fishSpriteSrc = FISH_IMAGE_SRC;
 let fishWidthRatioToFrame = 0.12;
+let pufferfishSpriteSrc = PUFFERFISH_IMAGE_SRC;
+let pufferfishWidthRatioToFrame = 0.12;
 let eatenFishCount = 0;
 let missedFishCount = 0;
+let level1ThrownCount = 0;
 let isGameStarted = false;
+let isGamePaused = false;
 let trackingReadyAtMs = 0;
 let currentLevel = null;
 let currentSpawnIntervalMs = LEVEL_CONFIGS[1].spawnIntervalMs;
@@ -125,6 +156,7 @@ let currentCatchRadiusScale = LEVEL_CONFIGS[1].catchRadiusScale;
 let activeClosedSprite = catClosed;
 let activeOpenSprite = catOpen;
 let level1SongAudio = null;
+let level2SongAudio = null;
 let nomSoundPool = [];
 let nextNomSoundIndex = 0;
 let nomAudioContext = null;
@@ -132,6 +164,9 @@ let nomAudioBuffer = null;
 let nomBassFilterNode = null;
 let nomOutputGainNode = null;
 let nomSoundLoadPromise = null;
+let woofSoundPool = [];
+let nextWoofSoundIndex = 0;
+let lastWoofAt = 0;
 let isNomSoundMuted = false;
 let lastFeedbackStingerAt = 0;
 let level1ClapCueTimesMs = [];
@@ -141,12 +176,19 @@ let isLevel1CueAnalysisPending = false;
 let level1EstimatedBeatMs = 60000 / LEVEL1_FALLBACK_BPM;
 let level1EstimatedOffsetMs = LEVEL1_FALLBACK_OFFSET_MS;
 let lastScheduledLevel1BeatSongMs = -Infinity;
+let lastClosedMouthDownbeatIndex = null;
+let catClosedKeyingFrameId = null;
+let catClosedKeyColor = null;
+let catClosedKeyContext = null;
 let isLevel1Ending = false;
 let level1FadeIntervalId = null;
+let isLevel2Ending = false;
+let level2FadeIntervalId = null;
 let countdownFrameId = null;
 let countdownLastStep = -1;
 let sceneEffectsFrameId = null;
 let level1ClapCueWordEls = [];
+let isAudioMuted = false;
 
 const clearLevel1EndFlow = () => {
 	isLevel1Ending = false;
@@ -159,6 +201,61 @@ const clearLevel1EndFlow = () => {
 	if (level1SongAudio) {
 		level1SongAudio.volume = LEVEL1_BASE_VOLUME;
 	}
+};
+
+const clearLevel2EndFlow = () => {
+	isLevel2Ending = false;
+
+	if (level2FadeIntervalId) {
+		window.clearInterval(level2FadeIntervalId);
+		level2FadeIntervalId = null;
+	}
+
+	if (level2SongAudio) {
+		level2SongAudio.volume = LEVEL2_BASE_VOLUME;
+	}
+};
+
+const finishLevel2Round = () => {
+	if (currentLevel !== 2) {
+		return;
+	}
+
+	if (level2SongAudio) {
+		level2SongAudio.pause();
+	}
+
+	isGameStarted = false;
+	setStatus("Song finished");
+	showGameOverScreen();
+};
+
+const startLevel2SongFadeOut = () => {
+	if (!level2SongAudio || isLevel2Ending || currentLevel !== 2 || !isGameStarted) {
+		return;
+	}
+
+	isLevel2Ending = true;
+	setStatus("Song ending...");
+
+	const initialVolume = level2SongAudio.volume;
+	const totalSteps = Math.max(1, Math.round(LEVEL2_FADE_OUT_MS / LEVEL2_FADE_STEP_MS));
+	let currentStep = 0;
+
+	level2FadeIntervalId = window.setInterval(() => {
+		currentStep += 1;
+		const ratio = Math.max(0, 1 - currentStep / totalSteps);
+		level2SongAudio.volume = initialVolume * ratio;
+
+		if (currentStep < totalSteps) {
+			return;
+		}
+
+		window.clearInterval(level2FadeIntervalId);
+		level2FadeIntervalId = null;
+		finishLevel2Round();
+		clearLevel2EndFlow();
+	}, LEVEL2_FADE_STEP_MS);
 };
 
 const finishLevel1Round = () => {
@@ -337,6 +434,7 @@ const ensureLevel1Song = () => {
 	level1SongAudio.loop = false;
 	level1SongAudio.preload = "auto";
 	level1SongAudio.volume = LEVEL1_BASE_VOLUME;
+	level1SongAudio.muted = isAudioMuted;
 	level1SongAudio.addEventListener("timeupdate", () => {
 		if (!level1SongAudio || !Number.isFinite(level1SongAudio.duration) || currentLevel !== 1 || !isGameStarted) {
 			return;
@@ -359,6 +457,38 @@ const ensureLevel1Song = () => {
 	return level1SongAudio;
 };
 
+const ensureLevel2Song = () => {
+	if (level2SongAudio) {
+		return level2SongAudio;
+	}
+
+	level2SongAudio = new Audio(LEVEL2_SONG_SRC);
+	level2SongAudio.loop = false;
+	level2SongAudio.preload = "auto";
+	level2SongAudio.volume = LEVEL2_BASE_VOLUME;
+	level2SongAudio.muted = isAudioMuted;
+	level2SongAudio.addEventListener("timeupdate", () => {
+		if (!level2SongAudio || !Number.isFinite(level2SongAudio.duration) || currentLevel !== 2 || !isGameStarted) {
+			return;
+		}
+
+		const remainingMs = (level2SongAudio.duration - level2SongAudio.currentTime) * 1000;
+		if (remainingMs <= LEVEL2_END_LEAD_MS) {
+			startLevel2SongFadeOut();
+		}
+	});
+	level2SongAudio.addEventListener("ended", () => {
+		if (currentLevel !== 2) {
+			return;
+		}
+
+		if (!isLevel2Ending && isGameStarted) {
+			startLevel2SongFadeOut();
+		}
+	});
+	return level2SongAudio;
+};
+
 const ensureNomSoundPool = () => {
 	if (nomSoundPool.length > 0) {
 		return nomSoundPool;
@@ -372,6 +502,22 @@ const ensureNomSoundPool = () => {
 	});
 
 	return nomSoundPool;
+};
+
+const ensureWoofSoundPool = () => {
+	if (woofSoundPool.length > 0) {
+		return woofSoundPool;
+	}
+
+	woofSoundPool = Array.from({ length: WOOF_SOUND_POOL_SIZE }, () => {
+		const audio = new Audio(WOOF_SOUND_SRC);
+		audio.preload = "auto";
+		audio.volume = WOOF_SOUND_VOLUME;
+		audio.muted = isAudioMuted;
+		return audio;
+	});
+
+	return woofSoundPool;
 };
 
 const ensureNomAudioContext = () => {
@@ -485,6 +631,32 @@ const playNomSound = () => {
 	nextNomSoundIndex = (nextNomSoundIndex + 1) % pool.length;
 
 	audio.playbackRate = NOM_SOUND_PLAYBACK_RATE;
+	audio.currentTime = 0;
+	audio.play().catch(() => {
+		// Ignore autoplay/momentary playback errors and continue gameplay.
+	});
+};
+
+const playWoofSound = () => {
+	if (currentLevel !== 2 || !isGameStarted || isGamePaused) {
+		return;
+	}
+
+	const now = performance.now();
+	if (now - lastWoofAt < WOOF_SOUND_COOLDOWN_MS) {
+		return;
+	}
+	lastWoofAt = now;
+
+	const pool = ensureWoofSoundPool();
+	if (pool.length === 0) {
+		return;
+	}
+
+	const audio = pool[nextWoofSoundIndex % pool.length];
+	nextWoofSoundIndex = (nextWoofSoundIndex + 1) % pool.length;
+	audio.playbackRate = 1;
+	audio.volume = WOOF_SOUND_VOLUME;
 	audio.currentTime = 0;
 	audio.play().catch(() => {
 		// Ignore autoplay/momentary playback errors and continue gameplay.
@@ -820,40 +992,48 @@ const clearCountdownDisplay = () => {
 	}
 };
 
+const getCountdownLabels = () => currentLevel === 2 ? LEVEL2_COUNTDOWN_LABELS : LEVEL1_COUNTDOWN_LABELS;
+const getCountdownTriggersMs = () => currentLevel === 2 ? LEVEL2_COUNTDOWN_TRIGGERS_MS : LEVEL1_COUNTDOWN_TRIGGERS_MS;
+const getCountdownAudio = () => currentLevel === 2 ? level2SongAudio : level1SongAudio;
+
 const showCountdownStep = (stepIndex) => {
 	if (!countdownOverlay) {
 		return;
 	}
 
+	const labels = getCountdownLabels();
 	countdownOverlay.innerHTML = "";
-	const isGo = stepIndex === LEVEL1_COUNTDOWN_LABELS.length - 1;
+	const isGo = stepIndex === labels.length - 1;
 	const el = document.createElement("span");
 	el.className = "countdown-label";
-	el.textContent = LEVEL1_COUNTDOWN_LABELS[stepIndex];
+	el.textContent = labels[stepIndex];
 	el.setAttribute("data-anim", isGo ? "go" : "count");
 	countdownOverlay.appendChild(el);
 	el.addEventListener("animationend", () => el.remove(), { once: true });
 };
 
 const tickCountdown = () => {
-	if (!level1SongAudio || !isGameStarted || currentLevel !== 1) {
+	const audio = getCountdownAudio();
+	const triggersMs = getCountdownTriggersMs();
+
+	if (!audio || !isGameStarted) {
 		countdownFrameId = null;
 		return;
 	}
 
-	const songMs = level1SongAudio.currentTime * 1000;
-	const lastTriggerMs = LEVEL1_COUNTDOWN_TRIGGERS_MS[LEVEL1_COUNTDOWN_TRIGGERS_MS.length - 1];
+	const songMs = audio.currentTime * 1000;
+	const lastTriggerMs = triggersMs[triggersMs.length - 1];
 
 	// Advance through any steps whose trigger time has passed
-	for (let i = countdownLastStep + 1; i < LEVEL1_COUNTDOWN_TRIGGERS_MS.length; i += 1) {
-		if (songMs >= LEVEL1_COUNTDOWN_TRIGGERS_MS[i]) {
+	for (let i = countdownLastStep + 1; i < triggersMs.length; i += 1) {
+		if (songMs >= triggersMs[i]) {
 			countdownLastStep = i;
 			showCountdownStep(i);
 		}
 	}
 
 	// Stop polling once the last label's animation has had time to finish
-	if (countdownLastStep >= LEVEL1_COUNTDOWN_TRIGGERS_MS.length - 1 && songMs > lastTriggerMs + 1200) {
+	if (countdownLastStep >= triggersMs.length - 1 && songMs > lastTriggerMs + 1200) {
 		countdownFrameId = null;
 		return;
 	}
@@ -864,19 +1044,22 @@ const tickCountdown = () => {
 const startCountdownDisplay = () => {
 	clearCountdownDisplay();
 
-	if (!level1SongAudio || currentLevel !== 1) {
+	const audio = getCountdownAudio();
+	const triggersMs = getCountdownTriggersMs();
+
+	if (!audio) {
 		return;
 	}
 
 	// Seed lastStep so we don't replay already-passed beats (e.g. on replay)
-	const songMs = level1SongAudio.currentTime * 1000;
-	for (let i = 0; i < LEVEL1_COUNTDOWN_TRIGGERS_MS.length; i += 1) {
-		if (songMs >= LEVEL1_COUNTDOWN_TRIGGERS_MS[i]) {
+	const songMs = audio.currentTime * 1000;
+	for (let i = 0; i < triggersMs.length; i += 1) {
+		if (songMs >= triggersMs[i]) {
 			countdownLastStep = i;
 		}
 	}
 
-	const lastTriggerMs = LEVEL1_COUNTDOWN_TRIGGERS_MS[LEVEL1_COUNTDOWN_TRIGGERS_MS.length - 1];
+	const lastTriggerMs = triggersMs[triggersMs.length - 1];
 	if (songMs > lastTriggerMs + 1200) {
 		return;
 	}
@@ -897,6 +1080,17 @@ const playLevel1Song = async () => {
 	}
 };
 
+const playLevel2Song = async () => {
+	try {
+		const audio = ensureLevel2Song();
+		audio.currentTime = 0;
+		audio.volume = LEVEL2_BASE_VOLUME;
+		await audio.play();
+	} catch (error) {
+		console.warn("Level 2 song could not start.", error);
+	}
+};
+
 const stopLevel1Song = () => {
 	if (!level1SongAudio) {
 		stopSceneEffectsLoop();
@@ -908,6 +1102,48 @@ const stopLevel1Song = () => {
 	level1SongAudio.pause();
 	level1SongAudio.currentTime = 0;
 	stopSceneEffectsLoop();
+};
+
+const stopLevel2Song = () => {
+	if (!level2SongAudio) {
+		return;
+	}
+
+	clearLevel2EndFlow();
+	clearCountdownDisplay();
+	level2SongAudio.pause();
+	level2SongAudio.currentTime = 0;
+};
+
+const stopLevelSongs = () => {
+	stopLevel1Song();
+	stopLevel2Song();
+};
+
+const applyAudioMuteState = () => {
+	if (level1SongAudio) {
+		level1SongAudio.muted = isAudioMuted;
+	}
+
+	if (level2SongAudio) {
+		level2SongAudio.muted = isAudioMuted;
+	}
+
+	if (woofSoundPool.length > 0) {
+		for (let i = 0; i < woofSoundPool.length; i += 1) {
+			woofSoundPool[i].muted = isAudioMuted;
+		}
+	}
+
+	setNomSoundMuted(isAudioMuted);
+
+	if (!muteButton) {
+		return;
+	}
+
+	muteButton.textContent = isAudioMuted ? "🔇" : "🔊";
+	muteButton.setAttribute("aria-pressed", String(isAudioMuted));
+	muteButton.setAttribute("aria-label", isAudioMuted ? "Unmute music" : "Mute music");
 };
 
 const LEVEL_METRICS = {
@@ -933,7 +1169,246 @@ const LEVEL_METRICS = {
 	}
 };
 
+const isYuckActive = () => currentLevel === 1 && performance.now() < yuckActiveUntil;
+
+const CAT_CLOSED_KEY_THRESHOLD = 36;
+const CAT_CLOSED_KEY_SOFTNESS = 26;
+
+const restartClosedMouthImageAnimation = () => {
+	if (!(catClosed instanceof HTMLImageElement)) {
+		return;
+	}
+
+	const currentSrc = catClosed.getAttribute("src");
+	if (!currentSrc) {
+		return;
+	}
+
+	catClosed.setAttribute("src", "");
+	catClosed.setAttribute("src", currentSrc);
+};
+
+const stopClosedMouthKeyingLoop = () => {
+	if (catClosedKeyingFrameId) {
+		window.cancelAnimationFrame(catClosedKeyingFrameId);
+		catClosedKeyingFrameId = null;
+	}
+};
+
+const getClosedMouthKeySample = (pixels, width, height) => {
+	const sampleSize = Math.max(4, Math.floor(Math.min(width, height) * 0.04));
+	const anchors = [
+		{ x: 0, y: 0 },
+		{ x: width - sampleSize, y: 0 },
+		{ x: 0, y: height - sampleSize },
+		{ x: width - sampleSize, y: height - sampleSize }
+	];
+
+	let rSum = 0;
+	let gSum = 0;
+	let bSum = 0;
+	let count = 0;
+
+	for (let a = 0; a < anchors.length; a += 1) {
+		const anchor = anchors[a];
+		for (let y = 0; y < sampleSize; y += 1) {
+			for (let x = 0; x < sampleSize; x += 1) {
+				const px = anchor.x + x;
+				const py = anchor.y + y;
+				const index = (py * width + px) * 4;
+				const alpha = pixels[index + 3];
+				if (alpha < 12) {
+					continue;
+				}
+				rSum += pixels[index];
+				gSum += pixels[index + 1];
+				bSum += pixels[index + 2];
+				count += 1;
+			}
+		}
+	}
+
+	if (count === 0) {
+		return null;
+	}
+
+	return {
+		r: rSum / count,
+		g: gSum / count,
+		b: bSum / count
+	};
+};
+
+const ensureClosedMouthKeyContext = () => {
+	if (!(catClosed instanceof HTMLVideoElement) || !(catClosedKeyed instanceof HTMLCanvasElement)) {
+		return null;
+	}
+
+	const videoWidthPx = catClosed.videoWidth || 0;
+	const videoHeightPx = catClosed.videoHeight || 0;
+	if (videoWidthPx <= 0 || videoHeightPx <= 0) {
+		return null;
+	}
+
+	if (catClosedKeyed.width !== videoWidthPx || catClosedKeyed.height !== videoHeightPx) {
+		catClosedKeyed.width = videoWidthPx;
+		catClosedKeyed.height = videoHeightPx;
+		catClosedKeyColor = null;
+	}
+
+	if (!catClosedKeyContext) {
+		catClosedKeyContext = catClosedKeyed.getContext("2d", { willReadFrequently: true });
+	}
+
+	return catClosedKeyContext;
+};
+
+const renderClosedMouthKeyedFrame = () => {
+	const context = ensureClosedMouthKeyContext();
+	if (!context || !(catClosed instanceof HTMLVideoElement) || !(catClosedKeyed instanceof HTMLCanvasElement)) {
+		return;
+	}
+
+	context.drawImage(catClosed, 0, 0, catClosedKeyed.width, catClosedKeyed.height);
+	const imageData = context.getImageData(0, 0, catClosedKeyed.width, catClosedKeyed.height);
+	const pixels = imageData.data;
+
+	const sampledColor = getClosedMouthKeySample(pixels, catClosedKeyed.width, catClosedKeyed.height);
+	if (sampledColor) {
+		if (!catClosedKeyColor) {
+			catClosedKeyColor = sampledColor;
+		} else {
+			const smoothing = 0.08;
+			catClosedKeyColor.r = catClosedKeyColor.r * (1 - smoothing) + sampledColor.r * smoothing;
+			catClosedKeyColor.g = catClosedKeyColor.g * (1 - smoothing) + sampledColor.g * smoothing;
+			catClosedKeyColor.b = catClosedKeyColor.b * (1 - smoothing) + sampledColor.b * smoothing;
+		}
+	}
+
+	if (!catClosedKeyColor) {
+		return;
+	}
+
+	const thresholdSq = CAT_CLOSED_KEY_THRESHOLD * CAT_CLOSED_KEY_THRESHOLD;
+	const softnessSq = (CAT_CLOSED_KEY_THRESHOLD + CAT_CLOSED_KEY_SOFTNESS) * (CAT_CLOSED_KEY_THRESHOLD + CAT_CLOSED_KEY_SOFTNESS);
+	const fadeRangeSq = Math.max(1, softnessSq - thresholdSq);
+
+	for (let i = 0; i < pixels.length; i += 4) {
+		const alpha = pixels[i + 3];
+		if (alpha <= 0) {
+			continue;
+		}
+
+		const dr = pixels[i] - catClosedKeyColor.r;
+		const dg = pixels[i + 1] - catClosedKeyColor.g;
+		const db = pixels[i + 2] - catClosedKeyColor.b;
+		const distanceSq = dr * dr + dg * dg + db * db;
+
+		if (distanceSq <= thresholdSq) {
+			pixels[i + 3] = 0;
+			continue;
+		}
+
+		if (distanceSq < softnessSq) {
+			const keepRatio = (distanceSq - thresholdSq) / fadeRangeSq;
+			pixels[i + 3] = Math.round(alpha * keepRatio);
+		}
+	}
+
+	context.putImageData(imageData, 0, 0);
+};
+
+const startClosedMouthKeyingLoop = () => {
+	if (catClosedKeyingFrameId || !(catClosed instanceof HTMLVideoElement)) {
+		return;
+	}
+
+	const tick = () => {
+		catClosedKeyingFrameId = null;
+
+		if (!catClosed.paused && !catClosed.ended) {
+			renderClosedMouthKeyedFrame();
+		}
+
+		catClosedKeyingFrameId = window.requestAnimationFrame(tick);
+	};
+
+	tick();
+};
+
+const hideYuckSprite = () => {
+	if (catYuck) {
+		catYuck.classList.add("is-hidden");
+	}
+};
+
+const resetClosedMouthAnimation = () => {
+	if (catClosed instanceof HTMLImageElement) {
+		return;
+	}
+
+	if (!(catClosed instanceof HTMLVideoElement)) {
+		return;
+	}
+
+	catClosed.pause();
+	stopClosedMouthKeyingLoop();
+	try {
+		catClosed.currentTime = 0;
+	} catch {
+		// Ignore seek errors before metadata is available.
+	}
+
+	if (catClosedKeyContext && catClosedKeyed instanceof HTMLCanvasElement) {
+		catClosedKeyContext.clearRect(0, 0, catClosedKeyed.width, catClosedKeyed.height);
+	}
+};
+
+const playClosedMouthAnimation = () => {
+	if (catClosed instanceof HTMLImageElement) {
+		return;
+	}
+
+	if (!(catClosed instanceof HTMLVideoElement)) {
+		return;
+	}
+
+	const playPromise = catClosed.play();
+	startClosedMouthKeyingLoop();
+	if (playPromise && typeof playPromise.catch === "function") {
+		playPromise.catch(() => {
+			// Muted autoplay may still reject in some browsers.
+		});
+	}
+};
+
+const showYuck = () => {
+	if (!catYuck) {
+		return;
+	}
+
+	resetClosedMouthAnimation();
+
+	if (activeClosedSprite) {
+		activeClosedSprite.classList.add("is-hidden");
+	}
+
+	if (activeOpenSprite) {
+		activeOpenSprite.classList.add("is-hidden");
+	}
+
+	catYuck.classList.remove("is-hidden");
+	isMouthOpen = false;
+};
+
 const showClosed = () => {
+	if (isYuckActive()) {
+		showYuck();
+		return;
+	}
+
+	hideYuckSprite();
+
 	if (activeClosedSprite) {
 		activeClosedSprite.classList.remove("is-hidden");
 	}
@@ -942,10 +1417,23 @@ const showClosed = () => {
 		activeOpenSprite.classList.add("is-hidden");
 	}
 
+	if ((activeClosedSprite === catClosedKeyed || activeClosedSprite === catClosed) && currentLevel === 1) {
+		playClosedMouthAnimation();
+	}
+
 	isMouthOpen = false;
 };
 
 const showOpen = () => {
+	const wasOpen = isMouthOpen;
+
+	if (isYuckActive()) {
+		showYuck();
+		return;
+	}
+
+	hideYuckSprite();
+
 	if (activeClosedSprite) {
 		activeClosedSprite.classList.add("is-hidden");
 	}
@@ -954,13 +1442,21 @@ const showOpen = () => {
 		activeOpenSprite.classList.remove("is-hidden");
 	}
 
+	if ((activeClosedSprite === catClosedKeyed || activeClosedSprite === catClosed) && currentLevel === 1) {
+		resetClosedMouthAnimation();
+	}
+
 	isMouthOpen = true;
+
+	if (!wasOpen && currentLevel === 2 && activeOpenSprite === dogOpen) {
+		playWoofSound();
+	}
 };
 
 
-const setStatus = (message) => {
+const setStatus = () => {
 	if (trackerStatus) {
-		trackerStatus.textContent = message;
+		trackerStatus.textContent = "Bring hands together";
 	}
 };
 
@@ -987,7 +1483,36 @@ const updateFishCounter = () => {
 	}
 
 	const levelText = currentLevel ? `Level ${currentLevel} | ` : "";
-	fishCounter.textContent = `${levelText}Eaten: ${eatenFishCount} | Missed: ${missedFishCount}`;
+	fishCounter.innerHTML = `${levelText}Eaten: <span class="fish-counter-value">${eatenFishCount}</span> | Missed: <span class="fish-counter-value">${missedFishCount}</span>`;
+};
+
+const updatePauseButtonUI = () => {
+	if (!pauseButton) {
+		return;
+	}
+
+	pauseButton.setAttribute("aria-pressed", String(isGamePaused));
+	pauseButton.setAttribute("aria-label", isGamePaused ? "Resume level" : "Pause level");
+	pauseButton.classList.toggle("is-paused", isGamePaused);
+};
+
+const showGameplayControls = () => {
+	if (!gameControls) {
+		return;
+	}
+
+	gameControls.classList.remove("is-hidden");
+	gameControls.setAttribute("aria-hidden", "false");
+	updatePauseButtonUI();
+};
+
+const hideGameplayControls = () => {
+	if (!gameControls) {
+		return;
+	}
+
+	gameControls.classList.add("is-hidden");
+	gameControls.setAttribute("aria-hidden", "true");
 };
 
 const applyLevelConfig = (levelNumber) => {
@@ -1009,7 +1534,7 @@ const applyLevelVisuals = (levelNumber) => {
 		activeClosedSprite = dogClosed;
 		activeOpenSprite = dogOpen;
 	} else {
-		activeClosedSprite = catClosed;
+		activeClosedSprite = catClosedKeyed || catClosed;
 		activeOpenSprite = catOpen;
 	}
 
@@ -1017,8 +1542,16 @@ const applyLevelVisuals = (levelNumber) => {
 		catClosed.classList.add("is-hidden");
 	}
 
+	if (catClosedKeyed) {
+		catClosedKeyed.classList.add("is-hidden");
+	}
+
 	if (catOpen) {
 		catOpen.classList.add("is-hidden");
+	}
+
+	if (catYuck) {
+		catYuck.classList.add("is-hidden");
 	}
 
 	if (dogClosed) {
@@ -1027,6 +1560,10 @@ const applyLevelVisuals = (levelNumber) => {
 
 	if (dogOpen) {
 		dogOpen.classList.add("is-hidden");
+	}
+
+	if (levelNumber === 2) {
+		resetClosedMouthAnimation();
 	}
 
 	showClosed();
@@ -1191,12 +1728,24 @@ const getLevel1FlightDurationForArrival = (arrivalSongMs) => {
 	return Math.max(120, rawDurationMs);
 };
 
-const createFishSprite = () => {
+const createFishSprite = (spriteSrc) => {
 	const fish = document.createElement("img");
 	fish.className = "fish-sprite";
-	fish.src = fishSpriteSrc;
+	fish.src = spriteSrc;
 	fish.alt = "";
 	return fish;
+};
+
+const getLevel1BeatSpawnType = () => {
+	const throwIndex = level1ThrownCount + 1;
+	if (throwIndex <= 5) {
+		return "fish";
+	}
+
+	const throwsAfterIntro = throwIndex - 5;
+	const progression = Math.min(1, throwsAfterIntro / 44);
+	const pufferChance = lerp(0.12, 0.78, progression);
+	return Math.random() < pufferChance ? "pufferfish" : "fish";
 };
 
 const ensureClapCueWords = () => {
@@ -1230,8 +1779,13 @@ const spawnEventFeedback = (text, tone) => {
 	}
 
 	const metrics = getSceneMetrics();
+	const toneClass = tone === "positive"
+		? "is-positive"
+		: tone === "toxic"
+			? "is-toxic"
+			: "is-negative";
 	const pop = document.createElement("p");
-	pop.className = `event-feedback ${tone === "positive" ? "is-positive" : "is-negative"}`;
+	pop.className = `event-feedback ${toneClass}`;
 	pop.textContent = text;
 	pop.style.left = `${metrics.feedbackX}px`;
 	pop.style.top = `${metrics.feedbackY}px`;
@@ -1239,7 +1793,76 @@ const spawnEventFeedback = (text, tone) => {
 	pop.addEventListener("animationend", () => pop.remove(), { once: true });
 	window.setTimeout(() => pop.remove(), FEEDBACK_POP_LIFETIME_MS + 80);
 	eventFeedbackLayer.appendChild(pop);
-	playFeedbackStinger(tone);
+	playFeedbackStinger(tone === "toxic" ? "negative" : tone);
+};
+
+const spawnYuckImageFeedback = () => {
+	if (Number(currentLevel) !== 1 || !catYuck) {
+		return;
+	}
+
+	yuckActiveUntil = performance.now() + YUCK_DISPLAY_MS;
+
+	if (yuckResetTimerId) {
+		window.clearTimeout(yuckResetTimerId);
+	}
+
+	showYuck();
+	yuckResetTimerId = window.setTimeout(() => {
+		yuckActiveUntil = 0;
+		yuckResetTimerId = null;
+		showClosed();
+	}, YUCK_DISPLAY_MS);
+};
+
+const spawnPufferfishCaughtEffects = () => {
+	spawnToxicDripEffect();
+	spawnYuckImageFeedback();
+	spawnEventFeedback("Yuck!", "toxic");
+};
+
+
+const getCatchFeedback = (fishType) => {
+	if (fishType === "pufferfish") {
+		return { text: "Yuck!", tone: "toxic" };
+	}
+
+	return { text: "Nice!", tone: "positive" };
+};
+
+const getMissFeedback = (fishType) => {
+	if (fishType === "pufferfish") {
+		return { text: "Nice!", tone: "positive" };
+	}
+
+	return { text: "Miss!", tone: "negative" };
+};
+
+const spawnToxicDripEffect = () => {
+	if (!scene) {
+		return;
+	}
+
+	const existingOverlay = scene.querySelector(".toxic-drip-overlay");
+	if (existingOverlay) {
+		existingOverlay.remove();
+	}
+
+	const overlay = document.createElement("div");
+	overlay.className = "toxic-drip-overlay toxic-drip-video-overlay";
+	overlay.setAttribute("aria-hidden", "true");
+
+	let isDisposed = false;
+	const cleanup = () => {
+		if (isDisposed) {
+			return;
+		}
+		isDisposed = true;
+		overlay.remove();
+	};
+
+	scene.appendChild(overlay);
+	window.setTimeout(cleanup, TOXIC_DRIP_OVERLAY_MAX_MS);
 };
 
 const updateClapCueOverlay = (songMs) => {
@@ -1289,6 +1912,102 @@ const updateClapCueOverlay = (songMs) => {
 	}
 };
 
+const syncClosedMouthAnimationToDownbeat = (targetDownbeatSongMs = null) => {
+	if (catClosed instanceof HTMLImageElement) {
+		restartClosedMouthImageAnimation();
+		return;
+	}
+
+	if (!(catClosed instanceof HTMLVideoElement)) {
+		return;
+	}
+
+	if (
+		currentLevel !== 1
+		|| !isGameStarted
+		|| isGamePaused
+		|| isMouthOpen
+		|| isYuckActive()
+		|| (activeClosedSprite && activeClosedSprite.classList.contains("is-hidden"))
+	) {
+		return;
+	}
+
+	const beatMs = level1EstimatedBeatMs || 60000 / LEVEL1_FALLBACK_BPM;
+	const downbeatSpanMs = beatMs * Math.max(1, LEVEL1_DOWNBEAT_SPAN_BEATS);
+	const durationSec = Number.isFinite(catClosed.duration) && catClosed.duration > 0 ? catClosed.duration : null;
+
+	if (durationSec && Number.isFinite(downbeatSpanMs) && downbeatSpanMs > 0) {
+		// Slow the loop so one cycle maps to each downbeat span.
+		const desiredRate = (durationSec * 1000) / downbeatSpanMs;
+		catClosed.playbackRate = Math.max(0.25, Math.min(1.25, desiredRate));
+	}
+
+	if (
+		durationSec
+		&& level1SongAudio
+		&& Number.isFinite(targetDownbeatSongMs)
+		&& Number.isFinite(level1SongAudio.currentTime)
+	) {
+		const nowSongMs = level1SongAudio.currentTime * 1000;
+		const msUntilDownbeat = targetDownbeatSongMs - nowSongMs;
+		const durationMs = durationSec * 1000;
+		const headDownMs = durationMs * CAT_CLOSED_HEAD_DOWN_AT_RATIO;
+		const currentRate = catClosed.playbackRate || 1;
+		const phaseMs = ((headDownMs - msUntilDownbeat * currentRate) % durationMs + durationMs) % durationMs;
+
+		try {
+			catClosed.currentTime = phaseMs / 1000;
+		} catch {
+			// Ignore seek errors before metadata is available.
+		}
+	} else {
+		try {
+			catClosed.currentTime = 0;
+		} catch {
+			// Ignore seek errors before metadata is available.
+		}
+	}
+
+	playClosedMouthAnimation();
+};
+
+const syncClosedMouthAnimationToSongDownbeat = (songMs) => {
+	if (!Number.isFinite(songMs) || currentLevel !== 1) {
+		return;
+	}
+
+	const beatMs = level1EstimatedBeatMs || 60000 / LEVEL1_FALLBACK_BPM;
+	if (!Number.isFinite(beatMs) || beatMs <= 0) {
+		return;
+	}
+
+	const downbeatSpanMs = beatMs * Math.max(1, LEVEL1_DOWNBEAT_SPAN_BEATS);
+	if (!Number.isFinite(downbeatSpanMs) || downbeatSpanMs <= 0) {
+		return;
+	}
+
+	const downbeatIndex = Math.floor((songMs - level1EstimatedOffsetMs) / downbeatSpanMs);
+	if (!Number.isFinite(downbeatIndex)) {
+		return;
+	}
+
+	if (lastClosedMouthDownbeatIndex === null) {
+		lastClosedMouthDownbeatIndex = downbeatIndex;
+		const downbeatSongMs = downbeatIndex * downbeatSpanMs + level1EstimatedOffsetMs;
+		syncClosedMouthAnimationToDownbeat(downbeatSongMs);
+		return;
+	}
+
+	if (downbeatIndex === lastClosedMouthDownbeatIndex) {
+		return;
+	}
+
+	lastClosedMouthDownbeatIndex = downbeatIndex;
+	const downbeatSongMs = downbeatIndex * downbeatSpanMs + level1EstimatedOffsetMs;
+	syncClosedMouthAnimationToDownbeat(downbeatSongMs);
+};
+
 const animateSceneEffects = () => {
 	if (!isGameStarted) {
 		sceneEffectsFrameId = null;
@@ -1298,6 +2017,7 @@ const animateSceneEffects = () => {
 
 	const songMs = currentLevel === 1 && level1SongAudio ? level1SongAudio.currentTime * 1000 : NaN;
 	updateClapCueOverlay(songMs);
+	syncClosedMouthAnimationToSongDownbeat(songMs);
 	sceneEffectsFrameId = window.requestAnimationFrame(animateSceneEffects);
 };
 
@@ -1318,10 +2038,12 @@ const stopSceneEffectsLoop = () => {
 	resetClapCueOverlay();
 };
 
-const prepareFishSprite = async () => {
+const prepareSpriteAsset = async (imageSrc) => {
+	const fallbackWidthRatio = 0.12;
+
 	try {
 		const image = new Image();
-		image.src = FISH_IMAGE_SRC;
+		image.src = imageSrc;
 		await image.decode();
 
 		const canvas = document.createElement("canvas");
@@ -1359,7 +2081,10 @@ const prepareFishSprite = async () => {
 		}
 
 		if (maxX < minX || maxY < minY) {
-			return;
+			return {
+				spriteSrc: imageSrc,
+				widthRatio: fallbackWidthRatio
+			};
 		}
 
 		const cropWidth = maxX - minX + 1;
@@ -1370,11 +2095,29 @@ const prepareFishSprite = async () => {
 		const croppedContext = croppedCanvas.getContext("2d");
 		croppedContext.drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
-		fishSpriteSrc = croppedCanvas.toDataURL("image/png");
-		fishWidthRatioToFrame = Math.max(0.03, Math.min(0.25, cropWidth / FIGMA_FRAME_WIDTH));
+		return {
+			spriteSrc: croppedCanvas.toDataURL("image/png"),
+			widthRatio: Math.max(0.03, Math.min(0.25, cropWidth / FIGMA_FRAME_WIDTH))
+		};
 	} catch (error) {
-		console.warn("Failed to prepare cropped fish sprite, using fallback.", error);
+		console.warn(`Failed to prepare cropped sprite for ${imageSrc}, using fallback.`, error);
+		return {
+			spriteSrc: imageSrc,
+			widthRatio: fallbackWidthRatio
+		};
 	}
+};
+
+const prepareFishSprites = async () => {
+	const [fishAsset, pufferAsset] = await Promise.all([
+		prepareSpriteAsset(FISH_IMAGE_SRC),
+		prepareSpriteAsset(PUFFERFISH_IMAGE_SRC)
+	]);
+
+	fishSpriteSrc = fishAsset.spriteSrc;
+	fishWidthRatioToFrame = fishAsset.widthRatio;
+	pufferfishSpriteSrc = pufferAsset.spriteSrc;
+	pufferfishWidthRatioToFrame = pufferAsset.widthRatio;
 };
 
 const spawnFish = (options = {}) => {
@@ -1383,9 +2126,12 @@ const spawnFish = (options = {}) => {
 	}
 
 	const metrics = getSceneMetrics();
-	const sprite = createFishSprite();
+	const fishType = options.fishType === "pufferfish" ? "pufferfish" : "fish";
+	const spriteSrc = fishType === "pufferfish" ? pufferfishSpriteSrc : fishSpriteSrc;
+	const widthRatio = fishType === "pufferfish" ? pufferfishWidthRatioToFrame : fishWidthRatioToFrame;
+	const sprite = createFishSprite(spriteSrc);
 	const isLevel1 = currentLevel === 1;
-	const fishWidth = Math.max(34, metrics.width * fishWidthRatioToFrame);
+	const fishWidth = Math.max(34, metrics.width * widthRatio);
 	const startY = lerp(metrics.height * 0.27, metrics.height * 0.43, Math.random());
 	const controlX = lerp(metrics.width * 0.28, metrics.width * 0.5, Math.random());
 	const controlY = lerp(metrics.height * 0.03, metrics.height * 0.2, Math.random());
@@ -1401,6 +2147,7 @@ const spawnFish = (options = {}) => {
 
 	fishFlightLayer.appendChild(sprite);
 	activeFish.push({
+		type: fishType,
 		sprite,
 		phase: "flight",
 		resolved: false,
@@ -1477,17 +2224,29 @@ const animateFish = () => {
 			if (!fish.resolved && mouthDistance <= mouthCatchRadius) {
 				fish.resolved = true;
 				if (isMouthOpen) {
-					eatenFishCount += 1;
-					spawnEventFeedback("Nice!", "positive");
-					playNomSound();
+					const catchFeedback = getCatchFeedback(fish.type);
+					if (fish.type !== "pufferfish") {
+						eatenFishCount += 1;
+					} else {
+						removeFish(fish, i);
+						spawnPufferfishCaughtEffects();
+					}
+					if (fish.type !== "pufferfish") {
+						spawnEventFeedback(catchFeedback.text, catchFeedback.tone);
+					}
 					updateFishCounter();
 					isMouthLockedClosed = true;
 					clapOpenUntil = 0;
 					showClosed();
-					removeFish(fish, i);
+					if (fish.type !== "pufferfish") {
+						removeFish(fish, i);
+					}
 				} else {
-					missedFishCount += 1;
-					spawnEventFeedback("Miss!", "negative");
+					const missFeedback = getMissFeedback(fish.type);
+					if (fish.type !== "pufferfish") {
+						missedFishCount += 1;
+					}
+					spawnEventFeedback(missFeedback.text, missFeedback.tone);
 					updateFishCounter();
 					isMouthLockedClosed = true;
 					clapOpenUntil = 0;
@@ -1501,17 +2260,29 @@ const animateFish = () => {
 				if (fish.resolved) {
 					removeFish(fish, i);
 				} else if (isMouthOpen) {
-					eatenFishCount += 1;
-					spawnEventFeedback("Nice!", "positive");
-					playNomSound();
+					const catchFeedback = getCatchFeedback(fish.type);
+					if (fish.type !== "pufferfish") {
+						eatenFishCount += 1;
+					} else {
+						removeFish(fish, i);
+						spawnPufferfishCaughtEffects();
+					}
+					if (fish.type !== "pufferfish") {
+						spawnEventFeedback(catchFeedback.text, catchFeedback.tone);
+					}
 					updateFishCounter();
 					isMouthLockedClosed = true;
 					clapOpenUntil = 0;
 					showClosed();
-					removeFish(fish, i);
+					if (fish.type !== "pufferfish") {
+						removeFish(fish, i);
+					}
 				} else {
-					missedFishCount += 1;
-					spawnEventFeedback("Miss!", "negative");
+					const missFeedback = getMissFeedback(fish.type);
+					if (fish.type !== "pufferfish") {
+						missedFishCount += 1;
+					}
+					spawnEventFeedback(missFeedback.text, missFeedback.tone);
 					updateFishCounter();
 					isMouthLockedClosed = true;
 					clapOpenUntil = 0;
@@ -1555,6 +2326,30 @@ const stopFishSpawnTimers = () => {
 	}
 
 	lastScheduledLevel1BeatSongMs = -Infinity;
+	lastClosedMouthDownbeatIndex = null;
+};
+
+const pauseFishStream = () => {
+	stopFishSpawnTimers();
+
+	if (fishAnimationFrameId) {
+		window.cancelAnimationFrame(fishAnimationFrameId);
+		fishAnimationFrameId = null;
+	}
+};
+
+const resumeFishStream = () => {
+	if (!isGameStarted || isGamePaused) {
+		return;
+	}
+
+	if (currentLevel === 1) {
+		scheduleLevel1BeatSpawn();
+	}
+
+	if (!fishAnimationFrameId) {
+		fishAnimationFrameId = window.requestAnimationFrame(animateFish);
+	}
 };
 
 const scheduleLevel1BeatSpawn = () => {
@@ -1589,8 +2384,9 @@ const scheduleLevel1BeatSpawn = () => {
 		}
 
 		lastScheduledLevel1BeatSongMs = beatSongMs;
-
-		spawnFish({ targetArrivalSongMs: beatSongMs });
+		const fishType = getLevel1BeatSpawnType();
+		spawnFish({ targetArrivalSongMs: beatSongMs, fishType });
+		level1ThrownCount += 1;
 		scheduleLevel1BeatSpawn();
 	}, spawnDelayMs);
 };
@@ -1616,8 +2412,7 @@ const startFishStream = () => {
 		return;
 	}
 
-	scheduleLevel1BeatSpawn();
-	fishAnimationFrameId = window.requestAnimationFrame(animateFish);
+	resumeFishStream();
 };
 
 const hideLevelScreen = () => {
@@ -1652,6 +2447,10 @@ const showGameOverScreen = () => {
 		return;
 	}
 
+	if (gameOverScore) {
+		gameOverScore.textContent = `${eatenFishCount} FISH`;
+	}
+
 	gameOverScreen.classList.remove("is-hidden");
 	gameOverScreen.setAttribute("aria-hidden", "false");
 };
@@ -1672,14 +2471,111 @@ const clearAllFish = () => {
 };
 
 const stopFishStream = () => {
-	stopFishSpawnTimers();
-
-	if (fishAnimationFrameId) {
-		window.cancelAnimationFrame(fishAnimationFrameId);
-		fishAnimationFrameId = null;
-	}
+	pauseFishStream();
 
 	clearAllFish();
+};
+
+const pauseCurrentLevel = () => {
+	if (!isGameStarted || isGamePaused) {
+		return;
+	}
+
+	isGamePaused = true;
+	isMouthLockedClosed = true;
+	clapOpenUntil = 0;
+	showClosed();
+	resetClosedMouthAnimation();
+	pauseFishStream();
+	clearCountdownDisplay();
+	stopSceneEffectsLoop();
+
+	if (level1SongAudio && currentLevel === 1) {
+		level1SongAudio.pause();
+	}
+
+	if (level2SongAudio && currentLevel === 2) {
+		level2SongAudio.pause();
+	}
+
+	setStatus("Paused");
+	setDebug(["game: paused", `level: ${currentLevel || "-"}`]);
+	updatePauseButtonUI();
+};
+
+const resumeCurrentLevel = () => {
+	if (!isGameStarted || !isGamePaused) {
+		return;
+	}
+
+	isGamePaused = false;
+	isMouthLockedClosed = false;
+	wasPalmsTouching = false;
+
+	if (currentLevel === 1 && level1SongAudio) {
+		level1SongAudio.play().catch(() => {
+			setStatus("Tap anywhere, then press Resume");
+		});
+		startCountdownDisplay();
+		startSceneEffectsLoop();
+		setStatus("Level resumed");
+	} else if (currentLevel === 2 && level2SongAudio) {
+		level2SongAudio.play().catch(() => {
+			setStatus("Tap anywhere, then press Resume");
+		});
+		startCountdownDisplay();
+		setStatus("Level resumed");
+	} else {
+		setStatus("Level resumed");
+	}
+
+	setDebug(["game: running", `level: ${currentLevel || "-"}`]);
+	resumeFishStream();
+	updatePauseButtonUI();
+};
+
+const togglePause = () => {
+	if (!isGameStarted) {
+		return;
+	}
+
+	if (isGamePaused) {
+		resumeCurrentLevel();
+		return;
+	}
+
+	pauseCurrentLevel();
+};
+
+const returnToHomeScreen = () => {
+	yuckActiveUntil = 0;
+	if (yuckResetTimerId) {
+		window.clearTimeout(yuckResetTimerId);
+		yuckResetTimerId = null;
+	}
+	hideYuckSprite();
+	pauseFishStream();
+	stopFishStream();
+	stopLevelSongs();
+	isGameStarted = false;
+	isGamePaused = false;
+	currentLevel = null;
+	level1ThrownCount = 0;
+	eatenFishCount = 0;
+	missedFishCount = 0;
+	isMouthLockedClosed = false;
+	clapOpenUntil = 0;
+	wasPalmsTouching = false;
+	applyLevelVisuals(1);
+	stopSceneEffectsLoop();
+	showClosed();
+	updateFishCounter();
+	hideGameOverScreen();
+	hideGameplayControls();
+	showLevelScreen();
+	setStatus("Select a level to begin");
+	setDebug(["level: waiting for selection"]);
+	updatePauseButtonUI();
 };
 
 const startGameplayForCurrentLevel = () => {
@@ -1688,9 +2584,11 @@ const startGameplayForCurrentLevel = () => {
 	}
 
 	hideGameOverScreen();
+	showGameplayControls();
 
 	if (currentLevel === 1) {
 		startSceneEffectsLoop();
+		stopLevel2Song();
 		playLevel1Song();
 		startCountdownDisplay();
 		setStatus("Hand tracking ready - waiting for song count-in");
@@ -1698,6 +2596,8 @@ const startGameplayForCurrentLevel = () => {
 	} else {
 		stopSceneEffectsLoop();
 		stopLevel1Song();
+		playLevel2Song();
+		startCountdownDisplay();
 	}
 
 	startFishStream();
@@ -1708,11 +2608,20 @@ const startLevel = (levelNumber) => {
 		return;
 	}
 
+	yuckActiveUntil = 0;
+	if (yuckResetTimerId) {
+		window.clearTimeout(yuckResetTimerId);
+		yuckResetTimerId = null;
+	}
+	hideYuckSprite();
+
 	isGameStarted = true;
+	isGamePaused = false;
 	isMouthLockedClosed = false;
 	clapOpenUntil = 0;
 	wasPalmsTouching = false;
 	currentLevel = levelNumber;
+	level1ThrownCount = 0;
 	eatenFishCount = 0;
 	missedFishCount = 0;
 	applyLevelConfig(levelNumber);
@@ -1720,13 +2629,13 @@ const startLevel = (levelNumber) => {
 	updateFishCounter();
 	hideLevelScreen();
 	hideGameOverScreen();
+	showGameplayControls();
+	updatePauseButtonUI();
 	setStatus(`Level ${currentLevel} started`);
 	setDebug(["level: selected", `current: ${currentLevel}`, "camera: starting..."]);
 	stopFishStream();
 	lastScheduledLevel1BeatSongMs = -Infinity;
-	if (levelNumber !== 1) {
-		stopLevel1Song();
-	}
+	stopLevelSongs();
 	if (isTrackingStarted) {
 		trackingReadyAtMs = performance.now();
 		startGameplayForCurrentLevel();
@@ -1751,34 +2660,54 @@ const setupLevelScreen = () => {
 				return;
 			}
 
+			isGamePaused = false;
 			isGameStarted = false;
 			startLevel(currentLevel);
 		});
 	}
 
-	if (levelSelectButton) {
-		levelSelectButton.addEventListener("click", () => {
-			stopFishStream();
-			stopLevel1Song();
+	if (skipButton) {
+		skipButton.addEventListener("click", () => {
+			// Development: Skip to end screen
+			if (level1SongAudio) {
+				level1SongAudio.pause();
+				level1SongAudio.currentTime = 0;
+			}
 			isGameStarted = false;
-			currentLevel = null;
-			eatenFishCount = 0;
-			missedFishCount = 0;
-			isMouthLockedClosed = false;
-			clapOpenUntil = 0;
-			wasPalmsTouching = false;
-			applyLevelVisuals(1);
-			stopSceneEffectsLoop();
-			updateFishCounter();
-			hideGameOverScreen();
-			showLevelScreen();
-			setStatus("Select a level to begin");
-			setDebug(["level: waiting for selection"]);
+			isGamePaused = false;
+			showGameOverScreen();
 		});
+	}
+
+	if (levelSelectButton) {
+		levelSelectButton.addEventListener("click", returnToHomeScreen);
+	}
+
+	if (pauseButton) {
+		pauseButton.addEventListener("click", togglePause);
+	}
+
+	if (skipLevelButton) {
+		skipLevelButton.addEventListener("click", () => {
+			// Development: Skip to end screen
+			if (level1SongAudio) {
+				level1SongAudio.pause();
+				level1SongAudio.currentTime = 0;
+			}
+			isGameStarted = false;
+			isGamePaused = false;
+			stopFishSpawnTimers();
+			showGameOverScreen();
+		});
+	}
+
+	if (homeButton) {
+		homeButton.addEventListener("click", returnToHomeScreen);
 	}
 
 	setStatus("Select a level to begin");
 	setDebug(["level: waiting for selection"]);
+	updatePauseButtonUI();
 };
 
 const getHandLabel = (hand) => {
@@ -1801,6 +2730,14 @@ const getHandLabel = (hand) => {
 };
 
 const detectClapFromHands = (multiHandLandmarks) => {
+	if (!isGameStarted || isGamePaused) {
+		showClosed();
+		if (isGamePaused) {
+			setStatus("Paused");
+		}
+		return;
+	}
+
 	const handsCount = Array.isArray(multiHandLandmarks) ? multiHandLandmarks.length : 0;
 	const now = performance.now();
 
@@ -1955,8 +2892,11 @@ const detectClapFromHands = (multiHandLandmarks) => {
 	clapOpenUntil = 0;
 	isMouthLockedClosed = false;
 
-	const isMouthOpenNow = contactClap;
-	if (isMouthOpenNow) {
+	const isMouthOpenNow = contactClap && !isYuckActive();
+	if (isYuckActive()) {
+		showYuck();
+		setStatus(contactClap ? "Hands touching" : "Bring hands together");
+	} else if (isMouthOpenNow) {
 		showOpen();
 		setStatus("Hands touching");
 	} else {
@@ -2087,20 +3027,19 @@ const setupMuteButton = () => {
 	}
 
 	muteButton.addEventListener("click", () => {
-		const audio = ensureLevel1Song();
-		audio.muted = !audio.muted;
-		setNomSoundMuted(audio.muted);
-		muteButton.textContent = audio.muted ? "🔇" : "🔊";
-		muteButton.setAttribute("aria-pressed", String(audio.muted));
-		muteButton.setAttribute("aria-label", audio.muted ? "Unmute music" : "Mute music");
+		isAudioMuted = !isAudioMuted;
+		applyAudioMuteState();
 	});
+
+	applyAudioMuteState();
 };
 
 const init = async () => {
 	updateFishCounter();
 	ensureClapCueWords();
 	ensureNomSoundReady();
-	await prepareFishSprite();
+	ensureWoofSoundPool();
+	await prepareFishSprites();
 	setupLevelScreen();
 	setupMuteButton();
 };
